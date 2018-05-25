@@ -87,7 +87,7 @@ class BTPeer:
         self.__debug('Connected ' + str(clientsock.getpeername()))
 
         host, port = clientsock.getpeername()
-        peerconn = BTPeerConnection(None, host, port, clientsock, debug=False)
+        peerconn = BTPeerConnection(None, host, port, clientsock, self.debug)
 
         try:
             msgtype, msgdata = peerconn.recvdata()
@@ -344,7 +344,8 @@ class BTPeer:
 
         while not self.shutdown:
             try:
-                self.__debug('Listening for connections...')
+                # FIXME: getting sick of this being printed with every loop
+                # self.__debug('Listening for connections...')
                 clientsock, clientaddr = s.accept()
                 clientsock.settimeout(None)
 
@@ -357,7 +358,8 @@ class BTPeer:
                 continue
             except:
                 if self.debug:
-                    traceback.print_exc()
+                    # FIXME: getting sick of this being printed with every loop
+                    # traceback.print_exc()
                     continue
 
         # end while loop
@@ -390,7 +392,7 @@ class BTPeerConnection:
         else:
             self.s = sock
 
-        self.sd = self.s.makefile('rw', 0)
+        self.sd = self.s.makefile('rwb', 0)
 
     # --------------------------------------------------------------------------
     def __makemsg(self, msgtype, msgdata):
@@ -443,7 +445,7 @@ class BTPeerConnection:
 
             lenstr = self.sd.read(4)
             msglen = int(struct.unpack("!L", lenstr)[0])
-            msg = ""
+            msg = b""
 
             while len(msg) != msglen:
                 data = self.sd.read(min(2048, msglen - len(msg)))

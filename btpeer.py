@@ -107,8 +107,8 @@ class BTPeer:
         The function will be activated every <delay> seconds.
 
         """
-        t = threading.Thread(target=self.__runstabilizer,
-                             args=[stabilizer, delay])
+        t = threading.Thread(
+            target=self.__runstabilizer, args=[stabilizer, delay])
         t.start()
 
     def addhandler(self, msgtype, handler):
@@ -134,8 +134,8 @@ class BTPeer:
         """ Adds a peer name and host:port mapping to the known list of peers.
 
         """
-        if peerid not in self.peers and (self.maxpeers == 0 or
-                                         len(self.peers) < self.maxpeers):
+        if peerid not in self.peers and (self.maxpeers == 0
+                                         or len(self.peers) < self.maxpeers):
             self.peers[peerid] = (host, int(port))
             return True
         else:
@@ -217,12 +217,16 @@ class BTPeer:
             self.__debug('Unable to route %s to %s' % (msgtype, peerid))
             return None
         # host,port = self.peers[nextpid]
-        return self.connectandsend(host, port, msgtype, msgdata,
-                                   pid=nextpid,
-                                   waitreply=waitreply)
+        return self.connectandsend(
+            host, port, msgtype, msgdata, pid=nextpid, waitreply=waitreply)
 
-    def connectandsend(self, host, port, msgtype, msgdata,
-                       pid=None, waitreply=True):
+    def connectandsend(self,
+                       host,
+                       port,
+                       msgtype,
+                       msgdata,
+                       pid=None,
+                       waitreply=True):
         """
         connectandsend( host, port, message type, message data, peer id,
         wait for a reply ) -> [ ( reply type, reply data ), ... ]
@@ -241,8 +245,7 @@ class BTPeer:
                 onereply = peerconn.recvdata()
                 while onereply != (None, None):
                     msgreply.append(onereply)
-                    self.__debug('Got reply %s: %s'
-                                 % (pid, str(msgreply)))
+                    self.__debug('Got reply %s: %s' % (pid, str(msgreply)))
                     onereply = peerconn.recvdata()
             peerconn.close()
         except KeyboardInterrupt:
@@ -284,8 +287,8 @@ class BTPeer:
     def mainloop(self):
         s = self.makeserversocket(self.serverport)
         s.settimeout(2)
-        self.__debug('Server started: %s (%s:%d)'
-                     % (self.myid, self.serverhost, self.serverport))
+        self.__debug('Server started: %s (%s:%d)' %
+                     (self.myid, self.serverhost, self.serverport))
 
         while not self.shutdown:
             try:
@@ -294,8 +297,8 @@ class BTPeer:
                 clientsock, clientaddr = s.accept()
                 clientsock.settimeout(None)
 
-                t = threading.Thread(target=self.__handlepeer,
-                                     args=[clientsock])
+                t = threading.Thread(
+                    target=self.__handlepeer, args=[clientsock])
                 t.start()
             except KeyboardInterrupt:
                 print('KeyboardInterrupt: stopping mainloop')
@@ -313,7 +316,6 @@ class BTPeer:
 
 
 class BTPeerConnection:
-
     def __init__(self, peerid, host, port, sock=None, debug=False):
         # any exceptions thrown upwards
 

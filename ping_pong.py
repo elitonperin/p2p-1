@@ -10,11 +10,14 @@ peer.debug = True
 PING = b'PING'
 PONG = b'PONG'
 
+
 def handle_ping(peerconn, msgdata):
     peerconn.senddata(PONG, b'msgdata')
 
+
 def handle_pong(peerconn, msgdata):
     print(msgdata)
+
 
 peer.addhandler(PING, handle_ping)
 

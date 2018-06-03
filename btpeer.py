@@ -84,7 +84,7 @@ class BTPeer:
                 self.__debug('Not handled: %s: %s' % (msgtype, msgdata))
             else:
                 self.__debug('Handling peer msg: %s: %s' % (msgtype, msgdata))
-                self.handlers[msgtype](peerconn, msgdata)
+                self.handlers[msgtype](peerconn, msgdata, self)
         except KeyboardInterrupt:
             raise
         except:

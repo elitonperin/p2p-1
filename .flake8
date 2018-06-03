@@ -1,0 +1,4 @@
+[flake8]
+ignore = 
+    # E722: do not use bare except...
+    E722

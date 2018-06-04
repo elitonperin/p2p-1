@@ -156,23 +156,6 @@ class BTPeer:
         if peerid in self.peers:
             del self.peers[peerid]
 
-    def addpeerat(self, loc, peerid, host, port):
-        """ Inserts a peer's information at a specific position in the
-        list of peers. The functions addpeerat, getpeerat, and removepeerat
-        should not be used concurrently with addpeer, getpeer, and/or
-        removepeer.
-
-        """
-        self.peers[loc] = (peerid, host, int(port))
-
-    def getpeerat(self, loc):
-        if loc not in self.peers:
-            return None
-        return self.peers[loc]
-
-    def removepeerat(self, loc):
-        self.removepeer(loc)
-
     def getpeerids(self):
         """ Return a list of all known peer id's. """
         return self.peers.keys()

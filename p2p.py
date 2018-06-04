@@ -134,7 +134,6 @@ class BTPeer:
         """ Adds a peer name and host:port mapping to the known list of peers.
 
         """
-        print(peerid, host, port)
         if peerid not in self.peers and (self.maxpeers == 0
                                          or len(self.peers) < self.maxpeers):
 
@@ -455,7 +454,8 @@ class FileSharingPeer(BTPeer):
         self.peerlock.acquire()
         try:
             try:
-                peerid, host, port = data.split()
+                # FIXME:dt
+                peerid, host, port = [x.decode() for x in data.split()]
                 if self.maxpeersreached():
                     self.log('maxpeers %d reached: connection terminating' %
                              self.maxpeers)
@@ -483,8 +483,6 @@ class FileSharingPeer(BTPeer):
             peerconn.senddata(REPLY, '%d' % self.numberofpeers())
             for pid in self.getpeerids():
                 host, port = self.getpeer(pid)
-                # FIXME: What are the data types here?
-                # print('handle list peers', pid, host, port)
                 peerconn.senddata(REPLY, '%s %s %d' % (pid, host, port))
         finally:
             self.peerlock.release()
@@ -500,8 +498,6 @@ class FileSharingPeer(BTPeer):
         #               into this function
         if self.maxpeersreached() or not hops:
             return
-
-        print(host, port, self.myid)
 
         peerid = None
 
@@ -538,5 +534,3 @@ class FileSharingPeer(BTPeer):
             if self.debug:
                 traceback.print_exc()
             self.removepeer(peerid)
-        finally:
-            print(self.peers)

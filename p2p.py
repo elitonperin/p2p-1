@@ -136,11 +136,6 @@ class BTPeer:
         """
         if peerid not in self.peers and (self.maxpeers == 0
                                          or len(self.peers) < self.maxpeers):
-
-            # FIXME at least this prevents "host" from being a bytestring
-            if hasattr(host, 'decode'):
-                host = host.decode()
-
             self.peers[peerid] = (host, int(port))
             return True
         else:

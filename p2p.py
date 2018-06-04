@@ -16,7 +16,7 @@ class Peer:
 
     """
 
-    def __init__(self, maxpeers, serverport, myid=None, serverhost=None):
+    def __init__(self, maxpeers, serverport, serverhost=None):
         """ Initializes a peer servent (sic.) with the ability to catalog
         information for up to maxpeers number of peers (maxpeers may
         be set to 0 to allow unlimited number of peers), listening on
@@ -35,11 +35,6 @@ class Peer:
         else:
             self.__initserverhost()
 
-        if myid:
-            self.myid = myid
-        else:
-            self.myid = '%s:%d' % (self.serverhost, self.serverport)
-
         self.peerlock = threading.Lock()  # ensure proper access to
         # peers list (maybe better to use
         # threading.RLock (reentrant))
@@ -48,6 +43,10 @@ class Peer:
 
         self.handlers = {}
         self.router = None
+
+    @property
+    def id(self):
+        return f'{self.serverhost}:{self.serverport}'
 
     def __initserverhost(self):
         """ Attempt to connect to an Internet host in order to determine the
@@ -98,9 +97,6 @@ class Peer:
         while not self.shutdown:
             stabilizer()
             time.sleep(delay)
-
-    def setmyid(self, myid):
-        self.myid = myid
 
     def startstabilizer(self, stabilizer, delay):
         """ Registers and starts a stabilizer function with this peer.
@@ -270,7 +266,7 @@ class Peer:
     def mainloop(self):
         s = self.makeserversocket(self.serverport)
         s.settimeout(2)
-        self.log('Server started: %s (%s:%d)' % (self.myid, self.serverhost,
+        self.log('Server started: %s (%s:%d)' % (self.id, self.serverhost,
                                                  self.serverport))
 
         while not self.shutdown:
@@ -409,8 +405,8 @@ ERROR = b"ERRO"
 
 
 class FileSharingPeer(Peer):
-    def __init__(self, maxpeers, serverport, myid=None, serverhost=None):
-        super().__init__(maxpeers, serverport, myid, serverhost)
+    def __init__(self, maxpeers, serverport, serverhost=None):
+        super().__init__(maxpeers, serverport, serverhost)
         self.handlers = {
             INSERT_PEER: self.handle_insert_peer,
             LIST_PEERS: self.handle_list_peers,
@@ -419,7 +415,7 @@ class FileSharingPeer(Peer):
 
     def handle_peer_name(self, peerconn, data):
         """ Handles the NAME message type. Message data is not used. """
-        peerconn.senddata(REPLY, self.myid)
+        peerconn.senddata(REPLY, self.id)
 
     def handle_insert_peer(self, peerconn, data):
         """Handles the INSERT_PEER (join) message type. The message data
@@ -440,7 +436,7 @@ class FileSharingPeer(Peer):
                     peerconn.senddata(ERROR, 'Join: too many peers')
                     return
                 # peerid = '%s:%s' % (host,port)
-                if peerid not in self.getpeerids() and peerid != self.myid:
+                if peerid not in self.getpeerids() and peerid != self.id:
                     self.addpeer(peerid, host, port)
                     self.log('added peer: %s' % peerid)
                     peerconn.senddata(REPLY, 'Join: peer added: %s' % peerid)
@@ -490,7 +486,7 @@ class FileSharingPeer(Peer):
 
             resp = self.connectandsend(
                 host, port, INSERT_PEER,
-                '%s %s %d' % (self.myid, self.serverhost, self.serverport))[0]
+                '%s %s %d' % (self.id, self.serverhost, self.serverport))[0]
             self.log(str(resp))
             if (resp[0] != REPLY) or (peerid in self.getpeerids()):
                 return
@@ -506,7 +502,7 @@ class FileSharingPeer(Peer):
                 nextpid, host, port = [
                     x.decode() for x in resp.pop()[1].split()
                 ]
-                if nextpid != self.myid:
+                if nextpid != self.id:
                     self.build_peers(host, port, hops - 1)
         except:
             if self.debug:

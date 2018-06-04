@@ -10,7 +10,7 @@ def btdebug(msg):
     print("[%s] %s" % (str(threading.currentThread().getName()), msg))
 
 
-class BTPeer:
+class Peer:
     """ Implements the core functionality that might be used by a peer in a
     P2P network.
 
@@ -74,7 +74,7 @@ class BTPeer:
         self.log('Connected ' + str(clientsock.getpeername()))
 
         host, port = clientsock.getpeername()
-        peerconn = BTPeerConnection(None, host, port, clientsock, self.debug)
+        peerconn = PeerConnection(None, host, port, clientsock, self.debug)
 
         try:
             msgtype, msgdata = peerconn.recvdata()
@@ -220,7 +220,7 @@ class BTPeer:
         """
         msgreply = []
         try:
-            peerconn = BTPeerConnection(pid, host, port, debug=self.debug)
+            peerconn = PeerConnection(pid, host, port, debug=self.debug)
             peerconn.senddata(msgtype, msgdata)
             self.log('Sent %s: %s' % (pid, msgtype))
 
@@ -251,7 +251,7 @@ class BTPeer:
             try:
                 self.log('Check live %s' % pid)
                 host, port = self.peers[pid]
-                peerconn = BTPeerConnection(pid, host, port, debug=self.debug)
+                peerconn = PeerConnection(pid, host, port, debug=self.debug)
                 peerconn.senddata('PING', '')
                 isconnected = True
             except:
@@ -298,7 +298,7 @@ class BTPeer:
         s.close()
 
 
-class BTPeerConnection:
+class PeerConnection:
     def __init__(self, peerid, host, port, sock=None, debug=False):
         # any exceptions thrown upwards
 
@@ -330,7 +330,7 @@ class BTPeerConnection:
         Send a message through a peer connection. Returns True on success
         or False if there was an error.
         """
-        # Make sure this is a bytestring FIXME
+        # Make sure this is a bytestring
         if type(msgdata) == str:
             msgdata = msgdata.encode()
         try:
@@ -408,7 +408,7 @@ REPLY = b"REPL"
 ERROR = b"ERRO"
 
 
-class FileSharingPeer(BTPeer):
+class FileSharingPeer(Peer):
     def __init__(self, maxpeers, serverport, myid=None, serverhost=None):
         super().__init__(maxpeers, serverport, myid, serverhost)
         self.handlers = {

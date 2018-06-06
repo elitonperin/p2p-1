@@ -5,9 +5,28 @@ import time
 import traceback
 
 
-def btdebug(msg):
-    """ Prints a messsage to the screen with the name of the current thread """
-    print("[%s] %s" % (str(threading.currentThread().getName()), msg))
+class RemotePeer:
+    def __init__(self, host: str, port: int):
+        port = int(port)
+        assert type(host) == str
+        assert type(port) == int
+        self.host = host
+        self.port = port
+
+    @property
+    def id(self):
+        return f'{self.host}:{self.port}'
+
+    @property
+    def tuple(self):
+        return (self.host, self.port)
+
+    @classmethod
+    def from_tuple(cls, tup):
+        return cls(tup[0], tup[1])
+
+    def __eq__(self, other):
+        return self.host == other.host and self.port == other.port
 
 
 class Peer:
@@ -16,29 +35,28 @@ class Peer:
 
     """
 
-    def __init__(self, maxpeers, serverport, serverhost=None):
+    def __init__(self, maxpeers, port, host=None):
         """ Initializes a peer servent (sic.) with the ability to catalog
         information for up to maxpeers number of peers (maxpeers may
         be set to 0 to allow unlimited number of peers), listening on
         a given server port , with a given canonical peer name (id)
         and host address. If not supplied, the host address
-        (serverhost) will be determined by attempting to connect to an
+        (host) will be determined by attempting to connect to an
         Internet host like Google.
 
         """
         self.debug = False
 
         self.maxpeers = int(maxpeers)
-        self.serverport = int(serverport)
-        if serverhost:
-            self.serverhost = serverhost
+        self.port = int(port)
+        if host:
+            self.host = host
         else:
-            self.__initserverhost()
+            self.__inithost()
 
         self.peerlock = threading.Lock()  # ensure proper access to
-        # peers list (maybe better to use
-        # threading.RLock (reentrant))
-        self.peers = {}  # peerid ==> (host, port) mapping
+        # peers list (maybe better to use threading.RLock (reentrant))
+        self.remote_peers = []
         self.shutdown = False  # used to stop the main loop
 
         self.handlers = {}
@@ -46,21 +64,23 @@ class Peer:
 
     @property
     def id(self):
-        return f'{self.serverhost}:{self.serverport}'
+        return f'{self.host}:{self.port}'
 
-    def __initserverhost(self):
+    def __inithost(self):
         """ Attempt to connect to an Internet host in order to determine the
         local machine's IP address.
 
         """
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect(("www.google.com", 80))
-        self.serverhost = s.getsockname()[0]
+        self.host = s.getsockname()[0]
         s.close()
 
     def log(self, msg):
+        """ Prints a messsage to the screen with the name of the current
+        thread """
         if self.debug:
-            btdebug(msg)
+            print("[%s] %s" % (str(threading.currentThread().getName()), msg))
 
     def __handlepeer(self, clientsock):
         """
@@ -73,7 +93,8 @@ class Peer:
         self.log('Connected ' + str(clientsock.getpeername()))
 
         host, port = clientsock.getpeername()
-        peerconn = PeerConnection(None, host, port, clientsock, self.debug)
+        remote_peer = RemotePeer(host, port)
+        peerconn = PeerConnection(remote_peer, clientsock, self.debug)
 
         try:
             msgtype, msgdata = peerconn.recvdata()
@@ -100,9 +121,7 @@ class Peer:
 
     def startstabilizer(self, stabilizer, delay):
         """ Registers and starts a stabilizer function with this peer.
-        The function will be activated every <delay> seconds.
-
-        """
+        The function will be activated every <delay> seconds """
         t = threading.Thread(
             target=self.__runstabilizer, args=[stabilizer, delay])
         t.start()
@@ -126,34 +145,36 @@ class Peer:
         """
         self.router = router
 
-    def addpeer(self, peerid, host, port):
+    def peer_is_self(self, rp):
+        return rp.host == self.host and rp.port == self.port
+
+    def peer_is_connected(self, rp):
+        return rp in self.remote_peers
+
+    def can_add_peer(self, host, port):
+        remote_peer = RemotePeer(host, port)
+        return not self.peer_is_self(
+            remote_peer) and not self.peer_is_connected(
+                remote_peer) and not self.maxpeersreached()
+
+    def addpeer(self, host, port):
         """ Adds a peer name and host:port mapping to the known list of peers.
 
         """
-        if peerid not in self.peers and (self.maxpeers == 0
-                                         or len(self.peers) < self.maxpeers):
-            self.peers[peerid] = (host, int(port))
+        if self.can_add_peer(host, port):
+            self.remote_peers.append(RemotePeer(host, int(port)))
             return True
         else:
             return False
 
-    def getpeer(self, peerid):
-        """ Returns the (host, port) tuple for the given peer name """
-        assert peerid in self.peers  # maybe make this just a return NULL?
-        return self.peers[peerid]
-
-    def removepeer(self, peerid):
+    def removepeer(self, remote_peer):
         """ Removes peer information from the known list of peers. """
-        if peerid in self.peers:
-            del self.peers[peerid]
-
-    def getpeerids(self):
-        """ Return a list of all known peer id's. """
-        return self.peers.keys()
+        if self.peer_is_connected(remote_peer):
+            self.remote_peers.remove(remote_peer)
 
     def numberofpeers(self):
         """ Return the number of known peer's. """
-        return len(self.peers)
+        return len(self.remote_peers)
 
     def maxpeersreached(self):
         """ Returns whether the maximum limit of names has been added to the
@@ -161,8 +182,8 @@ class Peer:
         0.
 
         """
-        assert self.maxpeers == 0 or len(self.peers) <= self.maxpeers
-        return self.maxpeers > 0 and len(self.peers) == self.maxpeers
+        assert self.maxpeers == 0 or len(self.remote_peers) <= self.maxpeers
+        return self.maxpeers > 0 and len(self.remote_peers) == self.maxpeers
 
     def makeserversocket(self, port, backlog=5):
         """ Constructs and prepares a server socket listening on the given
@@ -195,7 +216,6 @@ class Peer:
         if not self.router or not nextpid:
             self.log('Unable to route %s to %s' % (msgtype, peerid))
             return None
-        # host,port = self.peers[nextpid]
         return self.connectandsend(
             host, port, msgtype, msgdata, pid=nextpid, waitreply=waitreply)
 
@@ -216,7 +236,8 @@ class Peer:
         """
         msgreply = []
         try:
-            peerconn = PeerConnection(pid, host, port, debug=self.debug)
+            remote_peer = RemotePeer(host, port)
+            peerconn = PeerConnection(remote_peer, debug=self.debug)
             peerconn.senddata(msgtype, msgdata)
             self.log('Sent %s: %s' % (pid, msgtype))
 
@@ -242,37 +263,33 @@ class Peer:
 
         """
         todelete = []
-        for pid in self.peers:
+        for remote_peer in self.remote_peers:
             isconnected = False
             try:
-                self.log('Check live %s' % pid)
-                host, port = self.peers[pid]
-                peerconn = PeerConnection(pid, host, port, debug=self.debug)
+                self.log('Check live %s' % remote_peer.id)
+                peerconn = PeerConnection(remote_peer, debug=self.debug)
                 peerconn.senddata('PING', '')
                 isconnected = True
             except:
-                todelete.append(pid)
+                todelete.append()  # FIXME: wtf. this will blow up.
             if isconnected:
                 peerconn.close()
 
         self.peerlock.acquire()
         try:
-            for pid in todelete:
-                if pid in self.peers:
-                    del self.peers[pid]
+            for peer in todelete:
+                self.removepeer(peer)
         finally:
             self.peerlock.release()
 
     def mainloop(self):
-        s = self.makeserversocket(self.serverport)
+        s = self.makeserversocket(self.port)
         s.settimeout(2)
-        self.log('Server started: %s (%s:%d)' % (self.id, self.serverhost,
-                                                 self.serverport))
+        self.log(
+            'Server started: %s (%s:%d)' % (self.id, self.host, self.port))
 
         while not self.shutdown:
             try:
-                # FIXME: getting sick of this being printed with every loop
-                # self.log('Listening for connections...')
                 clientsock, clientaddr = s.accept()
                 clientsock.settimeout(None)
 
@@ -285,7 +302,6 @@ class Peer:
                 continue
             except:
                 if self.debug:
-                    # FIXME: getting sick of this being printed with every loop
                     # traceback.print_exc()
                     continue
 
@@ -295,29 +311,32 @@ class Peer:
 
 
 class PeerConnection:
-    def __init__(self, peerid, host, port, sock=None, debug=False):
-        # any exceptions thrown upwards
-
-        self.id = peerid
+    def __init__(self, remote_peer, sock=None, debug=False):
         self.debug = debug
+        self.remote_peer = remote_peer
 
         if not sock:
             self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.s.connect((host, int(port)))
+            self.s.connect(self.remote_peer.tuple)
         else:
             self.s = sock
 
         self.sd = self.s.makefile('rwb', 0)
 
-    def __makemsg(self, msgtype, msgdata):
-        msglen = len(msgdata)
+    @property
+    def id(self):
+        return f'{self.remote_peer.host}:{self.remote_peer.port}'
 
+    def __makemsg(self, msgtype, msgdata):
+        # application formatting uses strings, networking uses bytestrings
+        if msgdata.encode:
+            msgdata = msgdata.encode()
+        if msgtype.encode:
+            msgtype = msgtype.encode()
+
+        msglen = len(msgdata)
         msg = struct.pack("!4sL%ds" % msglen, msgtype, msglen, msgdata)
         return msg
-
-    def log(self, msg):
-        if self.debug:
-            btdebug(msg)
 
     def senddata(self, msgtype, msgdata):
         """
@@ -326,9 +345,6 @@ class PeerConnection:
         Send a message through a peer connection. Returns True on success
         or False if there was an error.
         """
-        # Make sure this is a bytestring
-        if type(msgdata) == str:
-            msgdata = msgdata.encode()
         try:
             msg = self.__makemsg(msgtype, msgdata)
             self.sd.write(msg)
@@ -374,7 +390,8 @@ class PeerConnection:
                 traceback.print_exc()
             return None, None
 
-        return (msgtype, msg)
+        # application logic uses strings
+        return (msgtype.decode(), msg.decode())
 
     def close(self):
         """
@@ -392,21 +409,21 @@ class PeerConnection:
         return "|%s|" % self.id
 
 
-PEER_NAME = b"NAME"  # request a peer's canonical id
-LIST_PEERS = b"LIST"
-INSERT_PEER = b"JOIN"
-QUERY = b"QUER"
-QRESPONSE = b"RESP"
-FILE_GET = b"FGET"
-PEER_QUIT = b"QUIT"
+PEER_NAME = "NAME"  # request a peer's canonical id
+LIST_PEERS = "LIST"
+INSERT_PEER = "JOIN"
+QUERY = "QUER"
+QRESPONSE = "RESP"
+FILE_GET = "FGET"
+PEER_QUIT = "QUIT"
 
-REPLY = b"REPL"
-ERROR = b"ERRO"
+REPLY = "REPL"
+ERROR = "ERRO"
 
 
 class FileSharingPeer(Peer):
-    def __init__(self, maxpeers, serverport, serverhost=None):
-        super().__init__(maxpeers, serverport, serverhost)
+    def __init__(self, maxpeers, port, host=None):
+        super().__init__(maxpeers, port, host)
         self.handlers = {
             INSERT_PEER: self.handle_insert_peer,
             LIST_PEERS: self.handle_list_peers,
@@ -428,16 +445,14 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             try:
-                # FIXME:dt
-                peerid, host, port = [x.decode() for x in data.split()]
+                peerid, host, port = data.split()
                 if self.maxpeersreached():
                     self.log('maxpeers %d reached: connection terminating' %
                              self.maxpeers)
                     peerconn.senddata(ERROR, 'Join: too many peers')
                     return
-                # peerid = '%s:%s' % (host,port)
-                if peerid not in self.getpeerids() and peerid != self.id:
-                    self.addpeer(peerid, host, port)
+                if self.can_add_peer(host, port):
+                    self.addpeer(host, port)
                     self.log('added peer: %s' % peerid)
                     peerconn.senddata(REPLY, 'Join: peer added: %s' % peerid)
                 else:
@@ -455,9 +470,9 @@ class FileSharingPeer(Peer):
         try:
             self.log('Listing peers %d' % self.numberofpeers())
             peerconn.senddata(REPLY, '%d' % self.numberofpeers())
-            for pid in self.getpeerids():
-                host, port = self.getpeer(pid)
-                peerconn.senddata(REPLY, '%s %s %d' % (pid, host, port))
+            for rp in self.remote_peers:
+                peerconn.senddata(REPLY,
+                                  '%s %s %d' % (rp.id, rp.host, rp.port))
         finally:
             self.peerlock.release()
 
@@ -470,41 +485,38 @@ class FileSharingPeer(Peer):
         """
         # precondition: may be a good idea to hold the lock before going
         #               into this function
+        rp = RemotePeer(host, port)
         if self.maxpeersreached() or not hops:
             return
 
         peerid = None
 
-        self.log("Building peers from (%s,%s)" % (host, port))
+        self.log("Building peers from (%s:%s)" % (host, port))
 
         try:
-            _, peerid = self.connectandsend(host, port, PEER_NAME, b'')[0]
-
-            peerid = peerid.decode()
+            _, peerid = self.connectandsend(host, port, PEER_NAME, '')[0]
 
             self.log("contacted " + peerid)
 
             resp = self.connectandsend(
                 host, port, INSERT_PEER,
-                '%s %s %d' % (self.id, self.serverhost, self.serverport))[0]
+                '%s %s %d' % (self.id, self.host, self.port))[0]
             self.log(str(resp))
-            if (resp[0] != REPLY) or (peerid in self.getpeerids()):
+            if (resp[0] != REPLY) or self.peer_is_connected(rp):
                 return
 
-            self.addpeer(peerid, host, port)
+            self.addpeer(host, port)
 
             # do recursive depth first search to add more peers
-            resp = self.connectandsend(host, port, LIST_PEERS, b'', pid=peerid)
+            resp = self.connectandsend(host, port, LIST_PEERS, '')
             if len(resp) > 1:
                 resp.reverse()
             resp.pop()  # get rid of header count reply
             while len(resp):
-                nextpid, host, port = [
-                    x.decode() for x in resp.pop()[1].split()
-                ]
+                nextpid, host, port = resp.pop()[1].split()
                 if nextpid != self.id:
                     self.build_peers(host, port, hops - 1)
         except:
             if self.debug:
                 traceback.print_exc()
-            self.removepeer(peerid)
+            self.removepeer(rp)

@@ -11,7 +11,7 @@ args = parser.parse_args()
 
 port = args.port
 host = '0.0.0.0'
-peer = FileSharingPeer(5, port, serverhost=host)
+peer = FileSharingPeer(5, port, host)
 peer.debug = True
 
 if args.run:

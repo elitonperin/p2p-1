@@ -52,7 +52,7 @@ class Peer:
         if host:
             self.host = host
         else:
-            self.__inithost()
+            self.init_host()
 
         self.peerlock = threading.Lock()  # ensure proper access to
         # peers list (maybe better to use threading.RLock (reentrant))
@@ -66,7 +66,7 @@ class Peer:
     def id(self):
         return f'{self.host}:{self.port}'
 
-    def __inithost(self):
+    def init_host(self):
         """ Attempt to connect to an Internet host in order to determine the
         local machine's IP address.
 
@@ -82,7 +82,7 @@ class Peer:
         if self.debug:
             print("[%s] %s" % (str(threading.currentThread().getName()), msg))
 
-    def __handlepeer(self, clientsock):
+    def handle_peer(self, clientsock):
         """
         handlepeer( new socket connection ) -> ()
 
@@ -114,7 +114,7 @@ class Peer:
         self.log('Disconnecting ' + str(clientsock.getpeername()))
         peerconn.close()
 
-    def __runstabilizer(self, stabilizer, delay):
+    def run_stabilizer(self, stabilizer, delay):
         while not self.shutdown:
             stabilizer()
             time.sleep(delay)
@@ -123,7 +123,7 @@ class Peer:
         """ Registers and starts a stabilizer function with this peer.
         The function will be activated every <delay> seconds """
         t = threading.Thread(
-            target=self.__runstabilizer, args=[stabilizer, delay])
+            target=self.run_stabilizer, args=[stabilizer, delay])
         t.start()
 
     def addhandler(self, msgtype, handler):
@@ -294,7 +294,7 @@ class Peer:
                 clientsock.settimeout(None)
 
                 t = threading.Thread(
-                    target=self.__handlepeer, args=[clientsock])
+                    target=self.handle_peer, args=[clientsock])
                 t.start()
             except KeyboardInterrupt:
                 print('KeyboardInterrupt: stopping mainloop')
@@ -327,7 +327,7 @@ class PeerConnection:
     def id(self):
         return f'{self.remote_peer.host}:{self.remote_peer.port}'
 
-    def __makemsg(self, msgtype, msgdata):
+    def make_msg(self, msgtype, msgdata):
         # application formatting uses strings, networking uses bytestrings
         if msgdata.encode:
             msgdata = msgdata.encode()
@@ -346,7 +346,7 @@ class PeerConnection:
         or False if there was an error.
         """
         try:
-            msg = self.__makemsg(msgtype, msgdata)
+            msg = self.make_msg(msgtype, msgdata)
             self.sd.write(msg)
             self.sd.flush()
         except KeyboardInterrupt:

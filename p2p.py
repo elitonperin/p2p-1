@@ -25,6 +25,9 @@ class RemotePeer:
     def from_tuple(cls, tup):
         return cls(tup[0], tup[1])
 
+    def __repr__(self):
+        return f'{self.host}:{self.port}'
+
     def __eq__(self, other):
         return self.host == other.host and self.port == other.port
 
@@ -211,6 +214,10 @@ class Peer:
         Returns None if the message could not be routed.
         """
 
+        # FIXME: this method isn't used and doesn't seem to have any advantages
+        # over connect_and_send ...
+        # Perhaps replies are to be sent to someone else???
+
         if self.router:
             nextpid, host, port = self.router(peerid)
         if not self.router or not nextpid:
@@ -234,6 +241,7 @@ class Peer:
         reply, if expected, will be returned as a list of tuples.
 
         """
+        # FIXME remove pid
         msgreply = []
         try:
             remote_peer = RemotePeer(host, port)
@@ -430,7 +438,18 @@ class FileSharingPeer(Peer):
             LIST_PEERS: self.handle_list_peers,
             PEER_NAME: self.handle_peer_name,
             FILE_GET: self.handle_file_get,
+            QUERY: self.handle_query,
+            QRESPONSE: self.handle_qresponse,
         }
+        self.add_router(self.router_func)
+
+    def router_func(self, peer_id):
+        # FIXME this doesn't seem to work ...
+        host, port = peer_id.split()
+        if (host, int(port)) not in self.remote_peers:
+            return (None, None)
+        else:
+            return [peer_id, host, port]
 
     def handle_peer_name(self, peerconn, data):
         """ Handles the NAME message type. Message data is not used. """
@@ -494,6 +513,8 @@ class FileSharingPeer(Peer):
         except:
             self.log('invalid query %s: %s' % (str(peerconn), data))
             peerconn.send_data(ERROR, 'Query: incorrect arguments')
+            # FIXME returning b/c can't open thread without args defined ...
+            return
         # self.peerlock.release()
 
         t = threading.Thread(
@@ -508,41 +529,43 @@ class FileSharingPeer(Peer):
         message onto all immediate neighbors.
 
         """
-        for fname in self.files.keys():
-            if key in fname:
-                fpeerid = self.files[fname]
-                if not fpeerid:  # local files mapped to None
-                    fpeerid = self.myid
-                host, port = peerid.split(':')
+        host, port = peerid.split(':')
+        for file_name in self.files.keys():
+            if key in file_name:
+                file_peer_id = self.files[file_name]
+                if not file_peer_id:  # local files mapped to None
+                    file_peer_id = self.id
                 # can't use send_to_peer here because peerid is not necessarily
                 # an immediate neighbor
                 self.connect_and_send(
                     host,
                     int(port),
                     QRESPONSE,
-                    '%s %s' % (fname, fpeerid),
+                    '%s %s' % (file_name, file_peer_id),
                     pid=peerid)
                 return
         # will only reach here if key not found... in which case
         # propagate query to neighbors
         if ttl > 0:
             msgdata = '%s %s %d' % (peerid, key, ttl - 1)
-            for nextpid in self.getpeerids():
-                self.send_to_peer(nextpid, QUERY, msgdata)
+            for nextpid in self.remote_peers:
+                # FIXME this was send_to_peer which doesn't work and doesn't
+                # seem to do anything useful
+
+                self.connect_and_send(host, port, QUERY, msgdata)
 
     def handle_qresponse(self, peerconn, data):
         """ Handles the QRESPONSE message type. The message data should be
         in the format of a string, "file-name  peer-id", where file-name is
         the file that was queried about and peer-id is the name of the peer
-        that has a copy of the file.
-
-        """
+        that has a copy of the file. """
         try:
-            fname, fpeerid = data.split()
-            if fname in self.files:
-                self.log('Can\'t add duplicate file %s %s' % (fname, fpeerid))
+            file_name, file_peer_id = data.split()
+            if file_name in self.files:
+                self.log('Can\'t add duplicate file %s %s' % (file_name,
+                                                              file_peer_id))
             else:
-                self.files[fname] = fpeerid
+                self.files[file_name] = file_peer_id
         except:
             if self.debug:
                 traceback.print_exc()
@@ -550,16 +573,14 @@ class FileSharingPeer(Peer):
     def handle_file_get(self, peerconn, data):
         """ Handles the FILEGET message type. The message data should be in
         the format of a string, "file-name", where file-name is the name
-        of the file to be fetched.
-
-        """
-        fname = data
-        if fname not in self.files:
-            self.log('File not found %s' % fname)
+        of the file to be fetched. """
+        file_name = data
+        if file_name not in self.files:
+            self.log('File not found %s' % file_name)
             peerconn.send_data(ERROR, 'File not found')
             return
         try:
-            fd = open(fname, 'r')
+            fd = open(file_name, 'r')
             filedata = ''
             while True:
                 data = fd.read(2048)
@@ -568,7 +589,7 @@ class FileSharingPeer(Peer):
                 filedata += data
             fd.close()
         except:
-            self.log('Error reading file %s' % fname)
+            self.log('Error reading file %s' % file_name)
             peerconn.send_data(ERROR, 'Error reading file')
             return
 
@@ -584,7 +605,7 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             peerid = data.lstrip().rstrip()
-            if peerid in self.getpeerids():
+            if peerid in self.remote_peers:
                 msg = 'Quit: peer removed: %s' % peerid
                 self.log(msg)
                 peerconn.send_data(REPLY, msg)

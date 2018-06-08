@@ -424,10 +424,12 @@ ERROR = "ERRO"
 class FileSharingPeer(Peer):
     def __init__(self, maxpeers, port, host=None):
         super().__init__(maxpeers, port, host)
+        self.files = {}
         self.handlers = {
             INSERT_PEER: self.handle_insert_peer,
             LIST_PEERS: self.handle_list_peers,
             PEER_NAME: self.handle_peer_name,
+            FILE_GET: self.handle_file_get,
         }
 
     def handle_peer_name(self, peerconn, data):
@@ -476,6 +478,124 @@ class FileSharingPeer(Peer):
         finally:
             self.peerlock.release()
 
+    # QUERY arguments: "return-peerid key ttl"
+    def handle_query(self, peerconn, data):
+        """ Handles the QUERY message type. The message data should be in the
+        format of a string, "return-peer-id  key  ttl", where return-peer-id
+        is the name of the peer that initiated the query, key is the (portion
+        of the) file name being searched for, and ttl is how many further
+        levels of peers this query should be propagated on.
+
+        """
+        # self.peerlock.acquire()
+        try:
+            peerid, key, ttl = data.split()
+            peerconn.senddata(REPLY, 'Query ACK: %s' % key)
+        except:
+            self.log('invalid query %s: %s' % (str(peerconn), data))
+            peerconn.senddata(ERROR, 'Query: incorrect arguments')
+        # self.peerlock.release()
+
+        t = threading.Thread(
+            target=self.process_query, args=[peerid, key,
+                                             int(ttl)])
+        t.start()
+
+    def process_query(self, peerid, key, ttl):
+        """ Handles the processing of a query message after it has been
+        received and acknowledged, by either replying with a QRESPONSE message
+        if the file is found in the local list of files, or propagating the
+        message onto all immediate neighbors.
+
+        """
+        for fname in self.files.keys():
+            if key in fname:
+                fpeerid = self.files[fname]
+                if not fpeerid:  # local files mapped to None
+                    fpeerid = self.myid
+                host, port = peerid.split(':')
+                # can't use sendtopeer here because peerid is not necessarily
+                # an immediate neighbor
+                self.connectandsend(
+                    host,
+                    int(port),
+                    QRESPONSE,
+                    '%s %s' % (fname, fpeerid),
+                    pid=peerid)
+                return
+        # will only reach here if key not found... in which case
+        # propagate query to neighbors
+        if ttl > 0:
+            msgdata = '%s %s %d' % (peerid, key, ttl - 1)
+            for nextpid in self.getpeerids():
+                self.sendtopeer(nextpid, QUERY, msgdata)
+
+    def handle_qresponse(self, peerconn, data):
+        """ Handles the QRESPONSE message type. The message data should be
+        in the format of a string, "file-name  peer-id", where file-name is
+        the file that was queried about and peer-id is the name of the peer
+        that has a copy of the file.
+
+        """
+        try:
+            fname, fpeerid = data.split()
+            if fname in self.files:
+                self.log('Can\'t add duplicate file %s %s' % (fname, fpeerid))
+            else:
+                self.files[fname] = fpeerid
+        except:
+            if self.debug:
+                traceback.print_exc()
+
+    def handle_file_get(self, peerconn, data):
+        """ Handles the FILEGET message type. The message data should be in
+        the format of a string, "file-name", where file-name is the name
+        of the file to be fetched.
+
+        """
+        fname = data
+        if fname not in self.files:
+            self.log('File not found %s' % fname)
+            peerconn.senddata(ERROR, 'File not found')
+            return
+        try:
+            fd = open(fname, 'r')
+            filedata = ''
+            while True:
+                data = fd.read(2048)
+                if not len(data):
+                    break
+                filedata += data
+            fd.close()
+        except:
+            self.log('Error reading file %s' % fname)
+            peerconn.senddata(ERROR, 'Error reading file')
+            return
+
+        peerconn.senddata(REPLY, filedata)
+
+    def handle_quit(self, peerconn, data):
+        """ Handles the QUIT message type. The message data should be in the
+        format of a string, "peer-id", where peer-id is the canonical
+        name of the peer that wishes to be unregistered from this
+        peer's directory.
+
+        """
+        self.peerlock.acquire()
+        try:
+            peerid = data.lstrip().rstrip()
+            if peerid in self.getpeerids():
+                msg = 'Quit: peer removed: %s' % peerid
+                self.log(msg)
+                peerconn.senddata(REPLY, msg)
+                self.removepeer(peerid)
+            else:
+                msg = 'Quit: peer not found: %s' % peerid
+                self.log(msg)
+                peerconn.senddata(ERROR, msg)
+        finally:
+            self.peerlock.release()
+
     def build_peers(self, host, port, hops=1):
         """
         Attempt to build the local peer list up to the limit stored by
@@ -520,3 +640,8 @@ class FileSharingPeer(Peer):
             if self.debug:
                 traceback.print_exc()
             self.removepeer(rp)
+
+    def add_local_file(self, filename):
+        """ Registers a locally-stored file with the peer. """
+        self.files[filename] = None
+        self.log("Added local file %s" % filename)

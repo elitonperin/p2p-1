@@ -8,6 +8,7 @@ root = tk.Tk()
 class App(tk.Frame):
     def __init__(self, port, host, master=None, add_local=False):
         super().__init__(master)
+
         self.peer = FileSharingPeer(8, port, host)
         if add_local:
             self.peer.addlocalfile('hello.txt')
@@ -35,12 +36,27 @@ class App(tk.Frame):
             self.peer_list.insert(tk.END, remote_peer.id)
 
     def create_widgets(self):
-        self.peer_list = tk.Listbox()
-        self.peer_list.pack()
+        # FIXME: I don't think I need to tack all these onto self ...
+        self.peer_list = tk.Listbox(self)
+        self.peer_list.grid(row=0)
 
         self.quit = tk.Button(
             self, text="QUIT", fg="red", command=root.destroy)
-        self.quit.pack(side="bottom")
+        self.quit.grid(row=1)
+
+        add_peer_frame = tk.Frame(self)
+        add_peer_frame.grid(row=0)
+        self.add_peer_label = tk.Label(
+            add_peer_frame, text='Add peer as "host:port"')
+        self.add_peer_label.grid(row=0)
+        self.add_peer_entry = tk.Entry(add_peer_frame)
+        self.add_peer_entry.grid(row=1)
+        self.add_peer_button = tk.Button(
+            add_peer_frame, text='Add', command=self.add_peer)
+        self.add_peer_button.grid(row=2)
+
+    def add_peer(self):
+        print('add peer: ', self.add_peer_entry.get())
 
 
 def main_loop(host, port):

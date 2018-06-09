@@ -311,7 +311,7 @@ class Peer:
                 t.start()
             except KeyboardInterrupt:
                 print('KeyboardInterrupt: stopping main_loop')
-                self.shutdown = True
+                self.exit()
                 continue
             except:
                 if self.debug:
@@ -322,6 +322,10 @@ class Peer:
 
         s.close()
 
+    def exit(self):
+        self.shutdown = True
+        for rp in self.remote_peers:
+            self.send_quit_message(rp.host, rp.port)
 
 class PeerConnection:
     def __init__(self, remote_peer, sock=None, debug=False):

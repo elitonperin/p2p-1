@@ -78,4 +78,4 @@ class App(tk.Frame):
 
     def _destroy(self):
         self.root.destroy()
-        self.peer.shutdown = True
+        self.peer.exit()

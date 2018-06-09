@@ -34,6 +34,7 @@ class App(tk.Frame):
 
     def on_refresh(self):
         self.refresh_peer_list()
+        self.peer.prune_peers()  # TODO extract and run more infrequently
 
     def refresh_peer_list(self):
         # Delete previous, stale peers

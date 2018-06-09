@@ -270,7 +270,7 @@ class Peer:
 
         return msgreply
 
-    def check_live_peers(self):
+    def prune_peers(self):
         """ Attempts to ping all currently known peers in order to ensure that
         they are still active. Removes any from the peer list that do
         not reply. This function can be used as a simple stabilizer.
@@ -285,7 +285,7 @@ class Peer:
                 peerconn.send_data('PING', '')
                 isconnected = True
             except:
-                todelete.append()  # FIXME: wtf. this will blow up.
+                todelete.append(remote_peer)
             if isconnected:
                 peerconn.close()
 
@@ -324,8 +324,10 @@ class Peer:
 
     def exit(self):
         self.shutdown = True
+        # FIXME perhaps this cleanup should be handled by the mainloop?
         for rp in self.remote_peers:
             self.send_quit_message(rp.host, rp.port)
+
 
 class PeerConnection:
     def __init__(self, remote_peer, sock=None, debug=False):

@@ -34,6 +34,7 @@ class App(tk.Frame):
 
     def on_refresh(self):
         self.refresh_peer_list()
+        self.refresh_file_list()
         self.peer.prune_peers()  # TODO extract and run more infrequently
 
     def refresh_peer_list(self):
@@ -43,6 +44,16 @@ class App(tk.Frame):
         # Copy over current peers
         for remote_peer in self.peer.remote_peers:
             self.peer_list.insert(tk.END, remote_peer.id)
+
+    def refresh_file_list(self):
+        # Delete previous, stale files
+        if self.file_list.size() > 0:
+            self.file_list.delete(0, self.file_list.size() - 1)
+        # Copy over current files
+        for filename, address in self.peer.files.items():
+            if address is None:
+                address = 'local'
+            self.file_list.insert(tk.END, f'{filename}@{address}')
 
     def create_widgets(self):
         # FIXME: I don't think I need to tack all these onto self ...
@@ -82,7 +93,7 @@ class App(tk.Frame):
         # Controls frame
         self.quit = tk.Button(
             controls_frame, text="QUIT", fg="red", command=self._destroy)
-        self.quit.grid(row=2)
+        self.quit.pack(anchor=tk.CENTER)
 
     def add_peer(self):
         address = self.add_peer_entry.get()
@@ -90,15 +101,20 @@ class App(tk.Frame):
         self.peer.send_join_message(host, port)
 
     def remove_peer(self):
+        # FIXME: multi-select
         index = self.peer_list.curselection()[0]
         rp = self.peer.remote_peers[index]
         self.peer.send_quit_message(rp.host, rp.port)
 
     def add_file(self):
-        print('add file')
+        self.peer.add_local_file(self.add_file_entry.get())
 
     def remove_file(self):
-        print('remove file')
+        # FIXME: multi-select
+        index = self.file_list.curselection()
+        file_entry = self.file_list.get(index)
+        filename, address = file_entry.split('@')
+        self.peer.remove_local_file(filename)
 
     def _destroy(self):
         self.root.destroy()

@@ -667,6 +667,11 @@ class FileSharingPeer(Peer):
         self.files[filename] = None
         self.log("Added local file %s" % filename)
 
+    def remove_local_file(self, filename):
+        """ De-registers a locally-stored file with the peer. """
+        self.files.pop(filename)
+        self.log("Removed local file %s" % filename)
+
     def send_join_message(self, host, port):
         resp = self.connect_and_send(
             host, port, INSERT_PEER,

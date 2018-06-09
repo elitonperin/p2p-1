@@ -1,5 +1,5 @@
 import argparse
-from p2p import FileSharingPeer
+from p2p import FileSharingPeer, RemotePeer
 import gui
 
 
@@ -22,22 +22,35 @@ peer = FileSharingPeer(5, port, host)
 peer.debug = True
 
 
-if args.add_file:
-    peer.add_local_file(args.add_file)
-# FIXME: hard code one peer to see that the list is properly sent ...
-if args.build_from:
-    peer.build_peers(host, args.build_from, hops=10)
-if args.file_get:
-    file_name = args.file_get
-    peer.connect_and_send(host, args.peer_port, 'FGET', file_name)
-if args.query:
-    file_name = args.query
-    my_id = f'{host}:{port}'
-    ttl = '5'
-    data = ' '.join((my_id, file_name, ttl))
-    print('querying')
-    peer.connect_and_send(host, args.peer_port, 'QUER', data)
+# if args.add_file:
+#     peer.add_local_file(args.add_file)
+# # FIXME: hard code one peer to see that the list is properly sent ...
+# if args.build_from:
+#     peer.build_peers(host, args.build_from, hops=10)
+# if args.file_get:
+#     file_name = args.file_get
+#     peer.connect_and_send(host, args.peer_port, 'FGET', file_name)
+# if args.query:
+#     file_name = args.query
+#     my_id = f'{host}:{port}'
+#     ttl = '5'
+#     data = ' '.join((my_id, file_name, ttl))
+#     print('querying')
+#     peer.connect_and_send(host, args.peer_port, 'QUER', data)
+# if args.gui:
+#     gui.main_loop(host=host, port=args.port)
+# if args.run:
+#     peer.main_loop()
+
+
 if args.gui:
-    gui.main_loop(host=host, port=args.port)
+
+    build_from = None
+    if args.build_from:
+        build_from = RemotePeer(host=host, port=args.build_from)
+
+    app = gui.App(host=host, port=args.port, build_from=build_from)
+    app.mainloop()
+
 if args.run:
     peer.main_loop()

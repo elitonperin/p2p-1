@@ -2,16 +2,19 @@ import threading
 import tkinter as tk
 import p2p
 
-root = tk.Tk()
-
 
 class App(tk.Frame):
-    def __init__(self, port, host, master=None, add_local=False):
-        super().__init__(master)
+    def __init__(self, port, host, add_local=False, build_from=None):
+        self.root = tk.Tk()
+
+        super().__init__(self.root)
 
         self.peer = p2p.FileSharingPeer(8, port, host)
+
         if add_local:
             self.peer.addlocalfile('hello.txt')
+        if build_from:
+            self.peer.build_peers(build_from.host, build_from.port, hops=8)
 
         self.thread = threading.Thread(target=self.peer.main_loop, args=([]))
         self.thread.start()
@@ -41,7 +44,7 @@ class App(tk.Frame):
         self.peer_list.grid(row=0)
 
         self.quit = tk.Button(
-            self, text="QUIT", fg="red", command=root.destroy)
+            self, text="QUIT", fg="red", command=self._destroy)
         self.quit.grid(row=1)
 
         add_peer_frame = tk.Frame(self)
@@ -63,6 +66,6 @@ class App(tk.Frame):
         self.peer.send_join_message(host, port)
 
 
-def main_loop(host, port):
-    app = App(host=host, port=port, master=root)
-    app.mainloop()
+    def _destroy(self):
+        self.root.destroy()
+        self.peer.shutdown = True

@@ -188,12 +188,13 @@ class Peer:
         assert self.maxpeers == 0 or len(self.remote_peers) <= self.maxpeers
         return self.maxpeers > 0 and len(self.remote_peers) == self.maxpeers
 
-    def make_server_socket(self, port, backlog=5):
+    def make_server_socket(self, port, backlog=5, timeout=2):
         """ Constructs and prepares a server socket listening on the given
         port.
 
         """
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', port))
         s.listen(backlog)
@@ -291,8 +292,7 @@ class Peer:
             self.peerlock.release()
 
     def main_loop(self):
-        s = self.make_server_socket(self.port)
-        s.settimeout(2)
+        s = self.make_server_socket(self.port, timeout=2)
         self.log(
             'Server started: %s (%s:%d)' % (self.id, self.host, self.port))
 
@@ -663,6 +663,11 @@ class FileSharingPeer(Peer):
         # FIXME: rp is a little awkward here ...
         rp = RemotePeer(host, port)
         if (resp[0] != REPLY) or self.peer_is_connected(rp):
-            return
+            # FIXME this "error state" isn't really an "error state"
+            if 'already inserted' not in resp[1]:
+                # FIXME this return statements was used to prematurely stop
+                # execution of build_peers, but it no longer does this. Raising
+                # an exception would be more appropriate
+                return
 
         self.add_peer(host, port)  # FIXME leaving here for now ...

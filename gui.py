@@ -46,25 +46,30 @@ class App(tk.Frame):
 
     def create_widgets(self):
         # FIXME: I don't think I need to tack all these onto self ...
-        self.peer_list = tk.Listbox(self)
-        self.peer_list.grid(row=0)
 
-        add_peer_frame = tk.Frame(self)
-        add_peer_frame.grid(row=1)
+        file_frame = tk.Frame(self)
+        file_frame.grid(row=0, column=1)
+        peer_frame = tk.Frame(self)
+        peer_frame.grid(row=0, column=0)
+        controls_frame = tk.Frame(self)
+        controls_frame.grid(row=1)
+
+        self.peer_list = tk.Listbox(peer_frame)
+        self.peer_list.grid(row=0)
         self.remove_peer_button = tk.Button(
-            add_peer_frame, text="Remove Peer", command=self.remove_peer)
-        self.remove_peer_button.grid(row=0)
-        self.add_peer_label = tk.Label(
-            add_peer_frame, text='Add peer as "host:port"')
-        self.add_peer_label.grid(row=1)
-        self.add_peer_entry = tk.Entry(add_peer_frame)
+            peer_frame, text="Remove Peer", command=self.remove_peer)
+        self.remove_peer_button.grid(row=1)
+        self.add_peer_entry = tk.Entry(peer_frame)
         self.add_peer_entry.grid(row=2)
         self.add_peer_button = tk.Button(
-            add_peer_frame, text='Add Peer', command=self.add_peer)
+            peer_frame, text='Add Peer (host:port)', command=self.add_peer)
         self.add_peer_button.grid(row=3)
 
+        file_label = tk.Label(file_frame, text='*** FILES PLACEHOLDER ***')
+        file_label.grid(row=0)
+
         self.quit = tk.Button(
-            self, text="QUIT", fg="red", command=self._destroy)
+            controls_frame, text="QUIT", fg="red", command=self._destroy)
         self.quit.grid(row=2)
 
     def add_peer(self):

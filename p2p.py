@@ -25,6 +25,11 @@ class RemotePeer:
     def from_tuple(cls, tup):
         return cls(tup[0], tup[1])
 
+    @classmethod
+    def from_id(cls, id_):
+        host, port = id_.split(':')
+        return cls(host, int(port))
+
     def __repr__(self):
         return f'{self.host}:{self.port}'
 
@@ -440,6 +445,7 @@ class FileSharingPeer(Peer):
             FILE_GET: self.handle_file_get,
             QUERY: self.handle_query,
             QRESPONSE: self.handle_qresponse,
+            PEER_QUIT: self.handle_quit,
         }
         self.add_router(self.router_func)
 
@@ -605,11 +611,12 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             peerid = data.lstrip().rstrip()
-            if peerid in self.remote_peers:
+            rp = RemotePeer.from_id(peerid)
+            if rp in self.remote_peers:
                 msg = 'Quit: peer removed: %s' % peerid
                 self.log(msg)
                 peerconn.send_data(REPLY, msg)
-                self.remove_peer(peerid)
+                self.remove_peer(rp)
             else:
                 msg = 'Quit: peer not found: %s' % peerid
                 self.log(msg)
@@ -662,6 +669,7 @@ class FileSharingPeer(Peer):
 
         # FIXME: rp is a little awkward here ...
         rp = RemotePeer(host, port)
+
         if (resp[0] != REPLY) or self.peer_is_connected(rp):
             # FIXME this "error state" isn't really an "error state"
             if 'already inserted' not in resp[1]:
@@ -671,3 +679,10 @@ class FileSharingPeer(Peer):
                 return
 
         self.add_peer(host, port)  # FIXME leaving here for now ...
+
+    def send_quit_message(self, host, port):
+        resp = self.connect_and_send(host, int(port), PEER_QUIT, self.id)
+
+        # FIXME: why is this double nested??
+        if resp[0][0] == REPLY:
+            self.remove_peer(RemotePeer(host, port))

@@ -47,6 +47,7 @@ class App(tk.Frame):
     def create_widgets(self):
         # FIXME: I don't think I need to tack all these onto self ...
 
+        # Root frames
         file_frame = tk.Frame(self)
         file_frame.grid(row=0, column=1)
         peer_frame = tk.Frame(self)
@@ -54,6 +55,7 @@ class App(tk.Frame):
         controls_frame = tk.Frame(self)
         controls_frame.grid(row=1)
 
+        # Peer frame
         self.peer_list = tk.Listbox(peer_frame)
         self.peer_list.grid(row=0)
         self.remove_peer_button = tk.Button(
@@ -65,9 +67,19 @@ class App(tk.Frame):
             peer_frame, text='Add Peer (host:port)', command=self.add_peer)
         self.add_peer_button.grid(row=3)
 
-        file_label = tk.Label(file_frame, text='*** FILES PLACEHOLDER ***')
-        file_label.grid(row=0)
+        # Files frame
+        self.file_list = tk.Listbox(file_frame)
+        self.file_list.grid(row=0)
+        self.remove_file_button = tk.Button(
+            file_frame, text="Remove File", command=self.remove_file)
+        self.remove_file_button.grid(row=1)
+        self.add_file_entry = tk.Entry(file_frame)
+        self.add_file_entry.grid(row=2)
+        self.add_file_button = tk.Button(
+            file_frame, text='Add Local File', command=self.add_file)
+        self.add_file_button.grid(row=3)
 
+        # Controls frame
         self.quit = tk.Button(
             controls_frame, text="QUIT", fg="red", command=self._destroy)
         self.quit.grid(row=2)
@@ -81,6 +93,12 @@ class App(tk.Frame):
         index = self.peer_list.curselection()[0]
         rp = self.peer.remote_peers[index]
         self.peer.send_quit_message(rp.host, rp.port)
+
+    def add_file(self):
+        print('add file')
+
+    def remove_file(self):
+        print('remove file')
 
     def _destroy(self):
         self.root.destroy()

@@ -4,12 +4,17 @@ import p2p
 
 
 class App(tk.Frame):
-    def __init__(self, port, host, add_local=False, build_from=None):
+    def __init__(self,
+                 port,
+                 host,
+                 add_local=False,
+                 build_from=None,
+                 debug=False):
         self.root = tk.Tk()
 
         super().__init__(self.root)
 
-        self.peer = p2p.FileSharingPeer(8, port, host)
+        self.peer = p2p.FileSharingPeer(8, port, host, debug)
 
         if add_local:
             self.peer.addlocalfile('hello.txt')

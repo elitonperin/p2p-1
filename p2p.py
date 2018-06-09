@@ -38,7 +38,7 @@ class Peer:
 
     """
 
-    def __init__(self, maxpeers, port, host=None):
+    def __init__(self, maxpeers, port, host=None, debug=False):
         """ Initializes a peer servent (sic.) with the ability to catalog
         information for up to maxpeers number of peers (maxpeers may
         be set to 0 to allow unlimited number of peers), listening on
@@ -48,7 +48,7 @@ class Peer:
         Internet host like Google.
 
         """
-        self.debug = False
+        self.debug = debug
 
         self.maxpeers = int(maxpeers)
         self.port = int(port)
@@ -430,8 +430,8 @@ ERROR = "ERRO"
 
 
 class FileSharingPeer(Peer):
-    def __init__(self, maxpeers, port, host=None):
-        super().__init__(maxpeers, port, host)
+    def __init__(self, maxpeers, port, host=None, debug=False):
+        super().__init__(maxpeers, port, host, debug)
         self.files = {}
         self.handlers = {
             INSERT_PEER: self.handle_insert_peer,

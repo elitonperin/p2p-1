@@ -1,6 +1,6 @@
 import threading
 import tkinter as tk
-from p2p import FileSharingPeer
+import p2p
 
 root = tk.Tk()
 
@@ -9,7 +9,7 @@ class App(tk.Frame):
     def __init__(self, port, host, master=None, add_local=False):
         super().__init__(master)
 
-        self.peer = FileSharingPeer(8, port, host)
+        self.peer = p2p.FileSharingPeer(8, port, host)
         if add_local:
             self.peer.addlocalfile('hello.txt')
 
@@ -45,7 +45,7 @@ class App(tk.Frame):
         self.quit.grid(row=1)
 
         add_peer_frame = tk.Frame(self)
-        add_peer_frame.grid(row=0)
+        add_peer_frame.grid(row=2)
         self.add_peer_label = tk.Label(
             add_peer_frame, text='Add peer as "host:port"')
         self.add_peer_label.grid(row=0)
@@ -56,7 +56,11 @@ class App(tk.Frame):
         self.add_peer_button.grid(row=2)
 
     def add_peer(self):
-        print('add peer: ', self.add_peer_entry.get())
+        address = self.add_peer_entry.get()
+        print('attempting to add peer: ', self.add_peer_entry.get())
+
+        host, port = address.split(':')
+        self.peer.send_join_message(host, port)
 
 
 def main_loop(host, port):

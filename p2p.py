@@ -630,23 +630,10 @@ class FileSharingPeer(Peer):
         if self.max_peers_reached() or not hops:
             return
 
-        peerid = None
-
         self.log("Building peers from (%s:%s)" % (host, port))
 
         try:
-            _, peerid = self.connect_and_send(host, port, PEER_NAME, '')[0]
-
-            self.log("contacted " + peerid)
-
-            resp = self.connect_and_send(
-                host, port, INSERT_PEER,
-                '%s %s %d' % (self.id, self.host, self.port))[0]
-            self.log(str(resp))
-            if (resp[0] != REPLY) or self.peer_is_connected(rp):
-                return
-
-            self.add_peer(host, port)
+            self.send_join_message(host, port)
 
             # do recursive depth first search to add more peers
             resp = self.connect_and_send(host, port, LIST_PEERS, '')
@@ -666,3 +653,16 @@ class FileSharingPeer(Peer):
         """ Registers a locally-stored file with the peer. """
         self.files[filename] = None
         self.log("Added local file %s" % filename)
+
+    def send_join_message(self, host, port):
+        resp = self.connect_and_send(
+            host, port, INSERT_PEER,
+            '%s %s %d' % (self.id, self.host, self.port))[0]
+        self.log(str(resp))
+
+        # FIXME: rp is a little awkward here ...
+        rp = RemotePeer(host, port)
+        if (resp[0] != REPLY) or self.peer_is_connected(rp):
+            return
+
+        self.add_peer(host, port)  # FIXME leaving here for now ...

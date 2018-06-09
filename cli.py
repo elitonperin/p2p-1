@@ -1,5 +1,7 @@
 import argparse
 from p2p import FileSharingPeer
+import gui
+
 
 parser = argparse.ArgumentParser(description='testing btpeer.py')
 parser.add_argument(
@@ -11,6 +13,7 @@ parser.add_argument('--port', type=int, required=True)
 parser.add_argument('--add-file')
 parser.add_argument('--file-get')
 parser.add_argument('--query')
+parser.add_argument('--gui', action='store_true')
 args = parser.parse_args()
 
 port = args.port
@@ -34,5 +37,7 @@ if args.query:
     data = ' '.join((my_id, file_name, ttl))
     print('querying')
     peer.connect_and_send(host, args.peer_port, 'QUER', data)
+if args.gui:
+    gui.main_loop(host=host, port=args.port)
 if args.run:
     peer.main_loop()

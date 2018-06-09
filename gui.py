@@ -52,7 +52,7 @@ class App(tk.Frame):
         add_peer_frame = tk.Frame(self)
         add_peer_frame.grid(row=1)
         self.remove_peer_button = tk.Button(
-            add_peer_frame, text="Delete", command=self.remove_peer)
+            add_peer_frame, text="Remove Peer", command=self.remove_peer)
         self.remove_peer_button.grid(row=0)
         self.add_peer_label = tk.Label(
             add_peer_frame, text='Add peer as "host:port"')
@@ -60,7 +60,7 @@ class App(tk.Frame):
         self.add_peer_entry = tk.Entry(add_peer_frame)
         self.add_peer_entry.grid(row=2)
         self.add_peer_button = tk.Button(
-            add_peer_frame, text='Add', command=self.add_peer)
+            add_peer_frame, text='Add Peer', command=self.add_peer)
         self.add_peer_button.grid(row=3)
 
         self.quit = tk.Button(

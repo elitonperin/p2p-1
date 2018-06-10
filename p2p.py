@@ -45,7 +45,7 @@ class Peer:
         self.host = host
 
         # Only one thread can alter `remove_peers` at a time
-        self.peerlock = threading.Lock()
+        self.peer_lock = threading.Lock()
         self.remote_peers = []
 
         self.handlers = {}
@@ -159,12 +159,9 @@ class Peer:
             if isconnected:
                 peerconn.close()
 
-        self.peerlock.acquire()
-        try:
+        with self.peer_lock:
             for remote_peer in dead_remote_peers:
                 self.remove_peer(remote_peer)
-        finally:
-            self.peerlock.release()
 
     def main_loop(self):
         s = self.make_server_socket(self.port, timeout=2)
@@ -282,8 +279,7 @@ class FileSharingPeer(Peer):
         peerconn.send_data(REPLY, self.id)
 
     def handle_insert_peer(self, peerconn, data):
-        self.peerlock.acquire()
-        try:
+        with self.peer_lock:
             try:
                 remote_peer = RemotePeer.from_id(data)
                 if self.max_peers_reached():
@@ -302,21 +298,15 @@ class FileSharingPeer(Peer):
             except:
                 self.log(f"invalid insert {str(peerconn)}: {data}")
                 peerconn.send_data(ERROR, "Join: incorrect arguments")
-        finally:
-            self.peerlock.release()
 
     def handle_list_peers(self, peerconn, data):
-        self.peerlock.acquire()
-        try:
+        with self.peer_lock:
             self.log(f"Listing peers {self.num_peers}")
             peerconn.send_data(REPLY, str(self.num_peers))  # FIXME str
             for remote_peer in self.remote_peers:
                 peerconn.send_data(REPLY, self.id)
-        finally:
-            self.peerlock.release()
 
     def handle_query(self, peerconn, data):
-        # self.peerlock.acquire()
         try:
             peerid, key, ttl = data.split()
             peerconn.send_data(REPLY, f"Query ACK: {key}")
@@ -325,7 +315,6 @@ class FileSharingPeer(Peer):
             peerconn.send_data(ERROR, "Query: incorrect arguments")
             # FIXME returning b/c can't open thread without args defined ...
             return
-        # self.peerlock.release()
 
         remote_peer = RemotePeer.from_id(peerid)
         t = threading.Thread(
@@ -350,12 +339,12 @@ class FileSharingPeer(Peer):
                 self.connect_and_send(remote_peer, QUERY, msgdata)
 
     def handle_qresponse(self, peerconn, data):
-        # peerlock? we alter Peer.files here ...
-        file_name, file_peer_id = data.split()
-        if file_name in self.files:
-            self.log(f"Can't add duplicate file {file_name} {file_peer_id}")
-        else:
-            self.files[file_name] = file_peer_id
+        with self.peer_lock:
+            file_name, file_peer_id = data.split()
+            if file_name in self.files:
+                self.log(f"Can't add duplicate file {file_name} {file_peer_id}")
+            else:
+                self.files[file_name] = file_peer_id
 
     def handle_file_get(self, peerconn, data):
         file_name = data
@@ -380,8 +369,7 @@ class FileSharingPeer(Peer):
         peerconn.send_data(REPLY, filedata)
 
     def handle_quit(self, peerconn, data):
-        self.peerlock.acquire()
-        try:
+        with self.peer_lock:
             peerid = data.lstrip().rstrip()
             remote_peer = RemotePeer.from_id(peerid)
             if remote_peer in self.remote_peers:
@@ -393,8 +381,6 @@ class FileSharingPeer(Peer):
                 msg = f"Quit: peer not found: {peerid}"
                 self.log(msg)
                 peerconn.send_data(ERROR, msg)
-        finally:
-            self.peerlock.release()
 
     def build_peers(self, remote_peer, hops=1):
         # precondition: may be a good idea to hold the lock before going

@@ -27,15 +27,19 @@ class App(tk.Frame):
         self.pack()
         self.create_widgets()
         self.on_timer()
+        self.on_pruning_timer()
 
     def on_timer(self):
         self.on_refresh()
         self.after(3000, self.on_timer)
 
+    def on_pruning_timer(self):
+        self.peer.prune_peers()
+        self.after(600000, self.on_pruning_timer)  # ping every 10 minutes
+
     def on_refresh(self):
         self.refresh_peer_list()
         self.refresh_file_list()
-        self.peer.prune_peers()  # TODO extract and run more infrequently
 
     def refresh_peer_list(self):
         # Delete previous, stale peers
@@ -63,8 +67,6 @@ class App(tk.Frame):
         peer_frame.grid(row=0, column=0)
         file_frame = tk.Frame(self)
         file_frame.grid(row=0, column=1)
-        search_frame = tk.Frame(self)
-        search_frame.grid(row=0, column=2)
         controls_frame = tk.Frame(self)
         controls_frame.grid(row=1, column=1)
 
@@ -91,18 +93,11 @@ class App(tk.Frame):
         self.add_file_button = tk.Button(
             file_frame, text='Add Local File', command=self.add_file)
         self.add_file_button.grid(row=3)
-
-        # Search frame
-        self.search_result_list = tk.Listbox(search_frame)
-        self.search_result_list.grid(row=0)
-        self.search_entry = tk.Entry(search_frame)
-        self.search_entry.grid(row=1)
+        self.search_entry = tk.Entry(file_frame)
+        self.search_entry.grid(row=4)
         self.search_button = tk.Button(
-            search_frame, text="Search", command=self.search)
-        self.search_button.grid(row=2)
-        # self.add_file_button = tk.Button(
-        #     file_frame, text='Add Local File', command=self.add_file)
-        # self.add_file_button.grid(row=3)
+            file_frame, text="Search", command=self.search)
+        self.search_button.grid(row=5)
 
         # Controls frame
         self.quit = tk.Button(
@@ -131,7 +126,7 @@ class App(tk.Frame):
         self.peer.remove_local_file(filename)
 
     def search(self):
-        print('search')
+        self.peer.query_peers(self.search_entry.get())
 
     def _destroy(self):
         self.root.destroy()

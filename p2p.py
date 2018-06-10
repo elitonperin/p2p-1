@@ -697,3 +697,9 @@ class FileSharingPeer(Peer):
         # FIXME: why is this double nested??
         if resp[0][0] == REPLY:
             self.remove_peer(RemotePeer(host, port))
+
+    def query_peers(self, key, ttl='10'):
+        # FIXME: a string ttl is weird
+        for peer in self.remote_peers:
+            data = ' '.join([self.id, key, ttl])
+            self.connect_and_send(peer.host, peer.port, QUERY, data)

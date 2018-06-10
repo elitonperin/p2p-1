@@ -58,28 +58,28 @@ class Peer:
 
     def log(self, msg):
         if self.debug:
-            thread_name = threading.currentThread().getName()
+            thread_name = threading.current_thread().getName()
             print(f"[{thread_name}] {msg}")
 
-    def handle_peer(self, clientsock):
-        self.log("New child " + str(threading.currentThread().getName()))
-        self.log("Connected " + str(clientsock.getpeername()))
+    def handle_peer(self, client_socket):
+        self.log("New child " + str(threading.current_thread().getName()))
+        self.log("Connected " + str(client_socket.getpeername()))
 
-        host, port = clientsock.getpeername()
+        host, port = client_socket.getpeername()
         remote_peer = RemotePeer(host, port)
-        peerconn = PeerConnection(remote_peer, clientsock, self.debug)
+        peer_connection = PeerConnection(remote_peer, client_socket, self.debug)
 
-        msgtype, msgdata = peerconn.receive_data()
-        if msgtype:
-            msgtype = msgtype.upper()
-        if msgtype in self.handlers:
-            self.log(f"Handling peer msg: {msgtype}: {msgdata}")
-            self.handlers[msgtype](peerconn, msgdata)
+        msg_type, msg_data = peer_connection.receive_data()
+        if msg_type:
+            msg_type = msg_type.upper()
+        if msg_type in self.handlers:
+            self.log(f"Handling peer msg: {msg_type}: {msg_data}")
+            self.handlers[msg_type](peer_connection, msg_data)
         else:
-            self.log(f"Not handled: {msgtype}: {msgdata}")
+            self.log(f"Not handled: {msg_type}: {msg_data}")
 
-        self.log("Disconnecting " + str(clientsock.getpeername()))
-        peerconn.close()
+        self.log("Disconnecting " + str(client_socket.getpeername()))
+        peer_connection.close()
 
     def peer_is_self(self, remote_peer):
         return remote_peer.host == self.host and remote_peer.port == self.port
@@ -125,25 +125,25 @@ class Peer:
         s.listen(backlog)
         return s
 
-    def connect_and_send(self, remote_peer, msgtype, msgdata, waitreply=True):
+    def connect_and_send(self, remote_peer, msg_type, msg_data, wait_for_reply=True):
         # FIXME remove pid
         # Or do wee need it for messages that need to be returned so someone
         # other than sender?
-        msgreply = []
+        msg_reply = []
 
-        peerconn = PeerConnection(remote_peer, debug=self.debug)
-        peerconn.send_data(msgtype, msgdata)
-        self.log(f"Sent {remote_peer.id}: {msgtype}")
+        peer_connection = PeerConnection(remote_peer, debug=self.debug)
+        peer_connection.send_message(msg_type, msg_data)
+        self.log(f"Sent {remote_peer.id}: {msg_type}")
 
-        if waitreply:
-            onereply = peerconn.receive_data()
-            while onereply != (None, None):
-                msgreply.append(onereply)
-                self.log(f"Got reply {remote_peer.id}: {str(msgreply)}")
-                onereply = peerconn.receive_data()
-        peerconn.close()
+        if wait_for_reply:
+            one_reply = peer_connection.receive_data()
+            while one_reply != (None, None):
+                msg_reply.append(one_reply)
+                self.log(f"Got reply {remote_peer.id}: {str(msg_reply)}")
+                one_reply = peer_connection.receive_data()
+        peer_connection.close()
 
-        return msgreply
+        return msg_reply
 
     def prune_peers(self):
         dead_remote_peers = []
@@ -151,13 +151,13 @@ class Peer:
             isconnected = False
             try:
                 self.log(f"Check live {remote_peer.id}")
-                peerconn = PeerConnection(remote_peer, debug=self.debug)
-                peerconn.send_data("PING", "")
+                peer_connection = PeerConnection(remote_peer, debug=self.debug)
+                peer_connection.send_message("PING", "")
                 isconnected = True
             except:
                 dead_remote_peers.append(remote_peer)
             if isconnected:
-                peerconn.close()
+                peer_connection.close()
 
         with self.peer_lock:
             for remote_peer in dead_remote_peers:
@@ -169,10 +169,10 @@ class Peer:
 
         while not self.shutdown:
             with contextlib.suppress(socket.timeout):
-                clientsock, clientaddr = s.accept()
-                clientsock.settimeout(None)
+                client_socket, client_address = s.accept()
+                client_socket.settimeout(None)
 
-                t = threading.Thread(target=self.handle_peer, args=[clientsock])
+                t = threading.Thread(target=self.handle_peer, args=[client_socket])
                 t.start()
 
         s.close()
@@ -202,43 +202,43 @@ class PeerConnection:
     def id(self):
         return f"{self.remote_peer.host}:{self.remote_peer.port}"
 
-    def make_msg(self, msgtype, msgdata):
+    def make_msg(self, msg_type, msg_data):
         # application formatting uses strings, networking uses bytestrings
-        if msgdata.encode:
-            msgdata = msgdata.encode()
-        if msgtype.encode:
-            msgtype = msgtype.encode()
+        if msg_data.encode:
+            msg_data = msg_data.encode()
+        if msg_type.encode:
+            msg_type = msg_type.encode()
 
-        msglen = len(msgdata)
+        msg_len = len(msg_data)
         # FIXME how to do this with an f-string
-        msg = struct.pack("!4sL%ds" % msglen, msgtype, msglen, msgdata)
+        msg = struct.pack("!4sL%ds" % msg_len, msg_type, msg_len, msg_data)
         return msg
 
-    def send_data(self, msgtype, msgdata):
-        msg = self.make_msg(msgtype, msgdata)
+    def send_message(self, msg_type, msg_data):
+        msg = self.make_msg(msg_type, msg_data)
         self.sd.write(msg)
         self.sd.flush()
 
     def receive_data(self):
-        msgtype = self.sd.read(4)
-        if not msgtype:
+        msg_type = self.sd.read(4)
+        if not msg_type:
             return None, None
 
         lenstr = self.sd.read(4)
-        msglen = int(struct.unpack("!L", lenstr)[0])
+        msg_len = int(struct.unpack("!L", lenstr)[0])
         msg = b""
 
-        while len(msg) != msglen:
-            data = self.sd.read(min(2048, msglen - len(msg)))
+        while len(msg) != msg_len:
+            data = self.sd.read(min(2048, msg_len - len(msg)))
             if not len(data):
                 break
             msg += data
 
-        if len(msg) != msglen:
+        if len(msg) != msg_len:
             return None, None
 
         # application logic uses strings
-        return (msgtype.decode(), msg.decode())
+        return (msg_type.decode(), msg.decode())
 
     def close(self):
         self.s.close()
@@ -275,10 +275,10 @@ class FileSharingPeer(Peer):
             PEER_QUIT: self.handle_quit,
         }
 
-    def handle_peer_name(self, peerconn, data):
-        peerconn.send_data(REPLY, self.id)
+    def handle_peer_name(self, peer_connection, data):
+        peer_connection.send_message(REPLY, self.id)
 
-    def handle_insert_peer(self, peerconn, data):
+    def handle_insert_peer(self, peer_connection, data):
         with self.peer_lock:
             try:
                 remote_peer = RemotePeer.from_id(data)
@@ -286,33 +286,35 @@ class FileSharingPeer(Peer):
                     self.log(
                         f"maxpeers {self.maxpeers} reached: connection terminating"
                     )
-                    peerconn.send_data(ERROR, "Join: too many peers")
+                    peer_connection.send_message(ERROR, "Join: too many peers")
                     return
                 if self.add_peer(remote_peer):
                     self.log(f"added peer: {remote_peer.id}")
-                    peerconn.send_data(REPLY, f"Join: peer added: {remote_peer.id}")
+                    peer_connection.send_message(
+                        REPLY, f"Join: peer added: {remote_peer.id}"
+                    )
                 else:
-                    peerconn.send_data(
+                    peer_connection.send_message(
                         ERROR, f"Join: peer already inserted {remote_peer.id}"
                     )
             except:
-                self.log(f"invalid insert {str(peerconn)}: {data}")
-                peerconn.send_data(ERROR, "Join: incorrect arguments")
+                self.log(f"invalid insert {str(peer_connection)}: {data}")
+                peer_connection.send_message(ERROR, "Join: incorrect arguments")
 
-    def handle_list_peers(self, peerconn, data):
+    def handle_list_peers(self, peer_connection, data):
         with self.peer_lock:
             self.log(f"Listing peers {self.num_peers}")
-            peerconn.send_data(REPLY, str(self.num_peers))  # FIXME str
+            peer_connection.send_message(REPLY, str(self.num_peers))  # FIXME str
             for remote_peer in self.remote_peers:
-                peerconn.send_data(REPLY, self.id)
+                peer_connection.send_message(REPLY, self.id)
 
-    def handle_query(self, peerconn, data):
+    def handle_query(self, peer_connection, data):
         try:
             peerid, key, ttl = data.split()
-            peerconn.send_data(REPLY, f"Query ACK: {key}")
+            peer_connection.send_message(REPLY, f"Query ACK: {key}")
         except:
-            self.log(f"invalid query {str(peerconn)}: {data}")
-            peerconn.send_data(ERROR, "Query: incorrect arguments")
+            self.log(f"invalid query {str(peer_connection)}: {data}")
+            peer_connection.send_message(ERROR, "Query: incorrect arguments")
             # FIXME returning b/c can't open thread without args defined ...
             return
 
@@ -334,11 +336,11 @@ class FileSharingPeer(Peer):
                 return
         # if no match and ttl > 0, propagate query to neighbors
         if ttl > 0:
-            msgdata = f"{remote_peer.id} {key} {ttl - 1}"
+            msg_data = f"{remote_peer.id} {key} {ttl - 1}"
             for remote_peer in self.remote_peers:
-                self.connect_and_send(remote_peer, QUERY, msgdata)
+                self.connect_and_send(remote_peer, QUERY, msg_data)
 
-    def handle_qresponse(self, peerconn, data):
+    def handle_qresponse(self, peer_connection, data):
         with self.peer_lock:
             file_name, file_peer_id = data.split()
             if file_name in self.files:
@@ -346,11 +348,11 @@ class FileSharingPeer(Peer):
             else:
                 self.files[file_name] = file_peer_id
 
-    def handle_file_get(self, peerconn, data):
+    def handle_file_get(self, peer_connection, data):
         file_name = data
         if file_name not in self.files:
             self.log(f"File not found {file_name}")
-            peerconn.send_data(ERROR, "File not found")
+            peer_connection.send_message(ERROR, "File not found")
             return
         try:
             fd = open(file_name, "r")
@@ -363,24 +365,24 @@ class FileSharingPeer(Peer):
             fd.close()
         except:
             self.log(f"Error reading file {file_name}")
-            peerconn.send_data(ERROR, "Error reading file")
+            peer_connection.send_message(ERROR, "Error reading file")
             return
 
-        peerconn.send_data(REPLY, filedata)
+        peer_connection.send_message(REPLY, filedata)
 
-    def handle_quit(self, peerconn, data):
+    def handle_quit(self, peer_connection, data):
         with self.peer_lock:
             peerid = data.lstrip().rstrip()
             remote_peer = RemotePeer.from_id(peerid)
             if remote_peer in self.remote_peers:
                 msg = f"Quit: peer removed: {peerid}"
                 self.log(msg)
-                peerconn.send_data(REPLY, msg)
+                peer_connection.send_message(REPLY, msg)
                 self.remove_peer(remote_peer)
             else:
                 msg = f"Quit: peer not found: {peerid}"
                 self.log(msg)
-                peerconn.send_data(ERROR, msg)
+                peer_connection.send_message(ERROR, msg)
 
     def build_peers(self, remote_peer, hops=1):
         # precondition: may be a good idea to hold the lock before going

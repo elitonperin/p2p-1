@@ -4,7 +4,7 @@ import p2p
 
 
 class App(tk.Frame):
-    def __init__(self, port, host, add_local=False, build_from=None, debug=False):
+    def __init__(self, port, host, build_from=None, debug=False):
         # FIXME `build_from` is ambiguous variable name
         self.root = tk.Tk()
 
@@ -12,8 +12,6 @@ class App(tk.Frame):
 
         self.peer = p2p.FileSharingPeer(8, port, host, debug)
 
-        if add_local:
-            self.peer.addlocalfile("hello.txt")
         if build_from:
             self.peer.build_peers(build_from, hops=8)
 
@@ -50,10 +48,10 @@ class App(tk.Frame):
         if self.file_list.size() > 0:
             self.file_list.delete(0, self.file_list.size() - 1)
         # Copy over current files
-        for filename, address in self.peer.files.items():
+        for file_name, address in self.peer.files.items():
             if address is None:
                 address = "local"
-            self.file_list.insert(tk.END, f"{filename}@{address}")
+            self.file_list.insert(tk.END, f"{file_name}@{address}")
 
     def create_widgets(self):
         # FIXME: I don't think I need to tack all these onto self ...
@@ -121,8 +119,8 @@ class App(tk.Frame):
         # FIXME: multi-select
         index = self.file_list.curselection()
         file_entry = self.file_list.get(index)
-        filename, address = file_entry.split("@")
-        self.peer.remove_local_file(filename)
+        file_name, address = file_entry.split("@")
+        self.peer.remove_local_file(file_name)
 
     def search(self):
         self.peer.query_peers(self.search_entry.get())

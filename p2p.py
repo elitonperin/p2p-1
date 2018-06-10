@@ -58,7 +58,8 @@ class Peer:
 
     def log(self, msg):
         if self.debug:
-            print("[%s] %s" % (str(threading.currentThread().getName()), msg))
+            thread_name = threading.currentThread().getName()
+            print(f"[{thread_name}] {msg}")
 
     def handle_peer(self, clientsock):
         self.log('New child ' + str(threading.currentThread().getName()))
@@ -72,10 +73,10 @@ class Peer:
         if msgtype:
             msgtype = msgtype.upper()
         if msgtype in self.handlers:
-            self.log('Handling peer msg: %s: %s' % (msgtype, msgdata))
+            self.log(f'Handling peer msg: {msgtype}: {msgdata}')
             self.handlers[msgtype](peerconn, msgdata)
         else:
-            self.log('Not handled: %s: %s' % (msgtype, msgdata))
+            self.log(f'Not handled: {msgtype}: {msgdata}')
 
         self.log('Disconnecting ' + str(clientsock.getpeername()))
         peerconn.close()
@@ -86,18 +87,16 @@ class Peer:
     def peer_is_connected(self, rp):
         return rp in self.remote_peers
 
-    def can_add_peer(self, host, port):
-        remote_peer = RemotePeer(host, port)
-        return not self.peer_is_self(
-            remote_peer) and not self.peer_is_connected(
-                remote_peer) and not self.max_peers_reached()
+    def can_add_peer(self, rp):
+        return not self.peer_is_self(rp) and not self.peer_is_connected(
+            rp) and not self.max_peers_reached()
 
-    def add_peer(self, host, port):
+    def add_peer(self, rp):
         # FIXME returning true/false is odd
         # FIXME Intuitively, method named `add_x` should take input of type `x`
         # not (host, port) ...
-        if self.can_add_peer(host, port):
-            self.remote_peers.append(RemotePeer(host, int(port)))
+        if self.can_add_peer(rp):
+            self.remote_peers.append(rp)
             return True
         else:
             return False
@@ -106,6 +105,7 @@ class Peer:
         if self.peer_is_connected(remote_peer):
             self.remote_peers.remove(remote_peer)
 
+    @property
     def num_peers(self):
         return len(self.remote_peers)
 
@@ -130,18 +130,20 @@ class Peer:
                          pid=None,
                          waitreply=True):
         # FIXME remove pid
+        # Or do wee need it for messages that need to be returned so someone
+        # other than sender?
         msgreply = []
 
         remote_peer = RemotePeer(host, port)
         peerconn = PeerConnection(remote_peer, debug=self.debug)
         peerconn.send_data(msgtype, msgdata)
-        self.log('Sent %s: %s' % (pid, msgtype))
+        self.log(f'Sent {pid}: {msgtype}')
 
         if waitreply:
             onereply = peerconn.receive_data()
             while onereply != (None, None):
                 msgreply.append(onereply)
-                self.log('Got reply %s: %s' % (pid, str(msgreply)))
+                self.log(f'Got reply {pid}: {str(msgreply)}')
                 onereply = peerconn.receive_data()
         peerconn.close()
 
@@ -152,7 +154,7 @@ class Peer:
         for remote_peer in self.remote_peers:
             isconnected = False
             try:
-                self.log('Check live %s' % remote_peer.id)
+                self.log(f'Check live {remote_peer.id}')
                 peerconn = PeerConnection(remote_peer, debug=self.debug)
                 peerconn.send_data('PING', '')
                 isconnected = True
@@ -170,8 +172,7 @@ class Peer:
 
     def main_loop(self):
         s = self.make_server_socket(self.port, timeout=2)
-        self.log(
-            'Server started: %s (%s:%d)' % (self.id, self.host, self.port))
+        self.log(f'Server started: {self.id}')
 
         while not self.shutdown:
             with contextlib.suppress(socket.timeout):
@@ -217,6 +218,7 @@ class PeerConnection:
             msgtype = msgtype.encode()
 
         msglen = len(msgdata)
+        # FIXME how to do this with an f-string
         msg = struct.pack("!4sL%ds" % msglen, msgtype, msglen, msgdata)
         return msg
 
@@ -288,21 +290,21 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             try:
-                peerid, host, port = data.split()
+                rp = RemotePeer.from_id(data)
                 if self.max_peers_reached():
-                    self.log('maxpeers %d reached: connection terminating' %
-                             self.maxpeers)
+                    self.log(
+                        f'maxpeers {self.maxpeers} reached: connection terminating'
+                    )
                     peerconn.send_data(ERROR, 'Join: too many peers')
                     return
-                if self.can_add_peer(host, port):
-                    self.add_peer(host, port)
-                    self.log('added peer: %s' % peerid)
-                    peerconn.send_data(REPLY, 'Join: peer added: %s' % peerid)
+                if self.add_peer(rp):
+                    self.log(f'added peer: {rp.id}')
+                    peerconn.send_data(REPLY, f'Join: peer added: {rp.id}')
                 else:
-                    peerconn.send_data(
-                        ERROR, 'Join: peer already inserted %s' % peerid)
+                    peerconn.send_data(ERROR,
+                                       f'Join: peer already inserted {rp.id}')
             except:
-                self.log('invalid insert %s: %s' % (str(peerconn), data))
+                self.log(f'invalid insert {str(peerconn)}: {data}')
                 peerconn.send_data(ERROR, 'Join: incorrect arguments')
         finally:
             self.peerlock.release()
@@ -310,11 +312,10 @@ class FileSharingPeer(Peer):
     def handle_list_peers(self, peerconn, data):
         self.peerlock.acquire()
         try:
-            self.log('Listing peers %d' % self.num_peers())
-            peerconn.send_data(REPLY, '%d' % self.num_peers())
+            self.log(f'Listing peers {self.num_peers}')
+            peerconn.send_data(REPLY, str(self.num_peers))  # FIXME str
             for rp in self.remote_peers:
-                peerconn.send_data(REPLY,
-                                   '%s %s %d' % (rp.id, rp.host, rp.port))
+                peerconn.send_data(REPLY, self.id)
         finally:
             self.peerlock.release()
 
@@ -322,9 +323,9 @@ class FileSharingPeer(Peer):
         # self.peerlock.acquire()
         try:
             peerid, key, ttl = data.split()
-            peerconn.send_data(REPLY, 'Query ACK: %s' % key)
+            peerconn.send_data(REPLY, f'Query ACK: {key}')
         except:
-            self.log('invalid query %s: %s' % (str(peerconn), data))
+            self.log(f'invalid query {str(peerconn)}: {data}')
             peerconn.send_data(ERROR, 'Query: incorrect arguments')
             # FIXME returning b/c can't open thread without args defined ...
             return
@@ -346,12 +347,12 @@ class FileSharingPeer(Peer):
                     host,
                     int(port),
                     QRESPONSE,
-                    '%s %s' % (file_name, file_peer_id),
+                    f'{file_name} {file_peer_id}',
                     pid=peerid)
                 return
         # if no match and ttl > 0, propagate query to neighbors
         if ttl > 0:
-            msgdata = '%s %s %d' % (peerid, key, ttl - 1)
+            msgdata = f'{peerid} {key} {ttl - 1}'
             for nextpid in self.remote_peers:
                 self.connect_and_send(host, port, QUERY, msgdata)
 
@@ -359,15 +360,14 @@ class FileSharingPeer(Peer):
         # peerlock? we alter Peer.files here ...
         file_name, file_peer_id = data.split()
         if file_name in self.files:
-            self.log('Can\'t add duplicate file %s %s' % (file_name,
-                                                          file_peer_id))
+            self.log(f'Can\'t add duplicate file {file_name} {file_peer_id}')
         else:
             self.files[file_name] = file_peer_id
 
     def handle_file_get(self, peerconn, data):
         file_name = data
         if file_name not in self.files:
-            self.log('File not found %s' % file_name)
+            self.log(f'File not found {file_name}')
             peerconn.send_data(ERROR, 'File not found')
             return
         try:
@@ -380,7 +380,7 @@ class FileSharingPeer(Peer):
                 filedata += data
             fd.close()
         except:
-            self.log('Error reading file %s' % file_name)
+            self.log(f'Error reading file {file_name}')
             peerconn.send_data(ERROR, 'Error reading file')
             return
 
@@ -392,12 +392,12 @@ class FileSharingPeer(Peer):
             peerid = data.lstrip().rstrip()
             rp = RemotePeer.from_id(peerid)
             if rp in self.remote_peers:
-                msg = 'Quit: peer removed: %s' % peerid
+                msg = f'Quit: peer removed: {peerid}'
                 self.log(msg)
                 peerconn.send_data(REPLY, msg)
                 self.remove_peer(rp)
             else:
-                msg = 'Quit: peer not found: %s' % peerid
+                msg = f'Quit: peer not found: {peerid}'
                 self.log(msg)
                 peerconn.send_data(ERROR, msg)
         finally:
@@ -410,7 +410,7 @@ class FileSharingPeer(Peer):
         if self.max_peers_reached() or not hops:
             return
 
-        self.log("Building peers from (%s:%s)" % (host, port))
+        self.log(f"Building peers from {rp.id}")
 
         try:
             self.send_join_message(host, port)
@@ -421,8 +421,11 @@ class FileSharingPeer(Peer):
                 resp.reverse()
             resp.pop()  # get rid of header count reply
             while len(resp):
-                nextpid, host, port = resp.pop()[1].split()
+                nextpid = resp.pop()[1]
                 if nextpid != self.id:
+                    host, port = nextpid.split(
+                        ':')  # FIXME helper function ...
+                    port = int(port)
                     self.build_peers(host, port, hops - 1)
         except:
             self.remove_peer(rp)
@@ -430,17 +433,15 @@ class FileSharingPeer(Peer):
 
     def add_local_file(self, filename):
         self.files[filename] = None
-        self.log("Added local file %s" % filename)
+        self.log(f"Added local file {filename}")
 
     def remove_local_file(self, filename):
         self.files.pop(filename)
-        self.log("Removed local file %s" % filename)
+        self.log(f"Removed local file {filename}")
 
     def send_join_message(self, host, port):
-        resp = self.connect_and_send(
-            host, port, INSERT_PEER,
-            '%s %s %d' % (self.id, self.host, self.port))[0]
-        self.log(str(resp))
+        resp = self.connect_and_send(host, port, INSERT_PEER, self.id)[0]
+        self.log(str(resp))  # FIXME
 
         # FIXME: rp is a little awkward here ...
         rp = RemotePeer(host, port)
@@ -453,7 +454,7 @@ class FileSharingPeer(Peer):
                 # an exception would be more appropriate
                 return
 
-        self.add_peer(host, port)  # FIXME leaving here for now ...
+        self.add_peer(rp)  # FIXME leaving here for now ...
 
     def send_quit_message(self, host, port):
         resp = self.connect_and_send(host, int(port), PEER_QUIT, self.id)

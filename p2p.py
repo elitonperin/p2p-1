@@ -1,7 +1,6 @@
 import socket
 import struct
 import threading
-import time
 import traceback
 
 
@@ -31,72 +30,37 @@ class RemotePeer:
         return cls(host, int(port))
 
     def __repr__(self):
-        return f'{self.host}:{self.port}'
+        return f'<Remote Peer {self.host}:{self.port}>'
 
     def __eq__(self, other):
         return self.host == other.host and self.port == other.port
 
 
 class Peer:
-    """ Implements the core functionality that might be used by a peer in a
-    P2P network.
-
-    """
-
     def __init__(self, maxpeers, port, host=None, debug=False):
-        """ Initializes a peer servent (sic.) with the ability to catalog
-        information for up to maxpeers number of peers (maxpeers may
-        be set to 0 to allow unlimited number of peers), listening on
-        a given server port , with a given canonical peer name (id)
-        and host address. If not supplied, the host address
-        (host) will be determined by attempting to connect to an
-        Internet host like Google.
-
-        """
         self.debug = debug
 
         self.maxpeers = int(maxpeers)
         self.port = int(port)
-        if host:
-            self.host = host
-        else:
-            self.init_host()
+        self.host = host
 
-        self.peerlock = threading.Lock()  # ensure proper access to
-        # peers list (maybe better to use threading.RLock (reentrant))
+        # Only one thread can alter `remove_peers` at a time
+        self.peerlock = threading.Lock()
         self.remote_peers = []
-        self.shutdown = False  # used to stop the main loop
 
         self.handlers = {}
-        self.router = None
+
+        self.shutdown = False  # used to stop the main loop
 
     @property
     def id(self):
         return f'{self.host}:{self.port}'
 
-    def init_host(self):
-        """ Attempt to connect to an Internet host in order to determine the
-        local machine's IP address.
-
-        """
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(("www.google.com", 80))
-        self.host = s.getsockname()[0]
-        s.close()
-
     def log(self, msg):
-        """ Prints a messsage to the screen with the name of the current
-        thread """
         if self.debug:
             print("[%s] %s" % (str(threading.currentThread().getName()), msg))
 
     def handle_peer(self, clientsock):
-        """
-        handlepeer( new socket connection ) -> ()
-
-        Dispatches messages from the socket connection
-        """
-
         self.log('New child ' + str(threading.currentThread().getName()))
         self.log('Connected ' + str(clientsock.getpeername()))
 
@@ -108,11 +72,11 @@ class Peer:
             msgtype, msgdata = peerconn.receive_data()
             if msgtype:
                 msgtype = msgtype.upper()
-            if msgtype not in self.handlers:
-                self.log('Not handled: %s: %s' % (msgtype, msgdata))
-            else:
+            if msgtype in self.handlers:
                 self.log('Handling peer msg: %s: %s' % (msgtype, msgdata))
                 self.handlers[msgtype](peerconn, msgdata)
+            else:
+                self.log('Not handled: %s: %s' % (msgtype, msgdata))
         except KeyboardInterrupt:
             raise
         except:
@@ -121,37 +85,6 @@ class Peer:
 
         self.log('Disconnecting ' + str(clientsock.getpeername()))
         peerconn.close()
-
-    def run_stabilizer(self, stabilizer, delay):
-        while not self.shutdown:
-            stabilizer()
-            time.sleep(delay)
-
-    def start_stabilizer(self, stabilizer, delay):
-        """ Registers and starts a stabilizer function with this peer.
-        The function will be activated every <delay> seconds """
-        t = threading.Thread(
-            target=self.run_stabilizer, args=[stabilizer, delay])
-        t.start()
-
-    def add_handler(self, msgtype, handler):
-        """ Registers the handler for the given message type with this peer """
-        assert len(msgtype) == 4
-        self.handlers[msgtype] = handler
-
-    def add_router(self, router):
-        """ Registers a routing function with this peer. The setup of routing
-        is as follows: This peer maintains a list of other known peers
-        (in self.peers). The routing function should take the name of
-        a peer (which may not necessarily be present in self.peers)
-        and decide which of the known peers a message should be routed
-        to next in order to (hopefully) reach the desired peer. The router
-        function should return a tuple of three values: (next-peer-id, host,
-        port). If the message cannot be routed, the next-peer-id should be
-        None.
-
-        """
-        self.router = router
 
     def peer_is_self(self, rp):
         return rp.host == self.host and rp.port == self.port
@@ -166,9 +99,9 @@ class Peer:
                 remote_peer) and not self.max_peers_reached()
 
     def add_peer(self, host, port):
-        """ Adds a peer name and host:port mapping to the known list of peers.
-
-        """
+        # FIXME returning true/false is odd
+        # FIXME Intuitively, method named `add_x` should take input of type `x`
+        # not (host, port) ...
         if self.can_add_peer(host, port):
             self.remote_peers.append(RemotePeer(host, int(port)))
             return True
@@ -176,61 +109,24 @@ class Peer:
             return False
 
     def remove_peer(self, remote_peer):
-        """ Removes peer information from the known list of peers. """
         if self.peer_is_connected(remote_peer):
             self.remote_peers.remove(remote_peer)
 
     def num_peers(self):
-        """ Return the number of known peer's. """
         return len(self.remote_peers)
 
     def max_peers_reached(self):
-        """ Returns whether the maximum limit of names has been added to the
-        list of known peers. Always returns True if maxpeers is set to
-        0.
-
-        """
         assert self.maxpeers == 0 or len(self.remote_peers) <= self.maxpeers
+        # returns False if maxpeers is set to 0 (uncapped)
         return self.maxpeers > 0 and len(self.remote_peers) == self.maxpeers
 
     def make_server_socket(self, port, backlog=5, timeout=2):
-        """ Constructs and prepares a server socket listening on the given
-        port.
-
-        """
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(timeout)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(('', port))
+        s.bind(('', port))  # FIXME: why don't we pass a host in???
         s.listen(backlog)
         return s
-
-    def send_to_peer(self, peerid, msgtype, msgdata, waitreply=True):
-        """
-        send_to_peer( peer id, message type, message data, wait for a reply )
-         -> [ ( reply type, reply data ), ... ]
-
-        Send a message to the identified peer. In order to decide how to
-        send the message, the router handler for this peer will be called.
-        If no router function has been registered, it will not work. The
-        router function should provide the next immediate peer to whom the
-        message should be forwarded. The peer's reply, if it is expected,
-        will be returned.
-
-        Returns None if the message could not be routed.
-        """
-
-        # FIXME: this method isn't used and doesn't seem to have any advantages
-        # over connect_and_send ...
-        # Perhaps replies are to be sent to someone else???
-
-        if self.router:
-            nextpid, host, port = self.router(peerid)
-        if not self.router or not nextpid:
-            self.log('Unable to route %s to %s' % (msgtype, peerid))
-            return None
-        return self.connect_and_send(
-            host, port, msgtype, msgdata, pid=nextpid, waitreply=waitreply)
 
     def connect_and_send(self,
                          host,
@@ -239,14 +135,6 @@ class Peer:
                          msgdata,
                          pid=None,
                          waitreply=True):
-        """
-        connect_and_send( host, port, message type, message data, peer id,
-        wait for a reply ) -> [ ( reply type, reply data ), ... ]
-
-        Connects and sends a message to the specified host:port. The host's
-        reply, if expected, will be returned as a list of tuples.
-
-        """
         # FIXME remove pid
         msgreply = []
         try:
@@ -271,12 +159,7 @@ class Peer:
         return msgreply
 
     def prune_peers(self):
-        """ Attempts to ping all currently known peers in order to ensure that
-        they are still active. Removes any from the peer list that do
-        not reply. This function can be used as a simple stabilizer.
-
-        """
-        todelete = []
+        dead_peers = []
         for remote_peer in self.remote_peers:
             isconnected = False
             try:
@@ -285,13 +168,13 @@ class Peer:
                 peerconn.send_data('PING', '')
                 isconnected = True
             except:
-                todelete.append(remote_peer)
+                dead_peers.append(remote_peer)
             if isconnected:
                 peerconn.close()
 
         self.peerlock.acquire()
         try:
-            for peer in todelete:
+            for peer in dead_peers:
                 self.remove_peer(peer)
         finally:
             self.peerlock.release()
@@ -358,12 +241,6 @@ class PeerConnection:
         return msg
 
     def send_data(self, msgtype, msgdata):
-        """
-        send_data( message type, message data ) -> boolean status
-
-        Send a message through a peer connection. Returns True on success
-        or False if there was an error.
-        """
         try:
             msg = self.make_msg(msgtype, msgdata)
             self.sd.write(msg)
@@ -377,13 +254,6 @@ class PeerConnection:
         return True
 
     def receive_data(self):
-        """
-        receive_data() -> (msgtype, msgdata)
-
-        Receive a message from a peer connection. Returns (None, None)
-        if there was any error.
-        """
-
         try:
             msgtype = self.sd.read(4)
             if not msgtype:
@@ -413,22 +283,15 @@ class PeerConnection:
         return (msgtype.decode(), msg.decode())
 
     def close(self):
-        """
-        close()
-
-        Close the peer connection. The send and recv methods will not work
-        after this call.
-        """
-
         self.s.close()
         self.s = None
         self.sd = None
 
     def __str__(self):
-        return "|%s|" % self.id
+        return f"<PeerConnection {self.id}>"
 
 
-PEER_NAME = "NAME"  # request a peer's canonical id
+PEER_NAME = "NAME"
 LIST_PEERS = "LIST"
 INSERT_PEER = "JOIN"
 QUERY = "QUER"
@@ -453,28 +316,11 @@ class FileSharingPeer(Peer):
             QRESPONSE: self.handle_qresponse,
             PEER_QUIT: self.handle_quit,
         }
-        self.add_router(self.router_func)
-
-    def router_func(self, peer_id):
-        # FIXME this doesn't seem to work ...
-        host, port = peer_id.split()
-        if (host, int(port)) not in self.remote_peers:
-            return (None, None)
-        else:
-            return [peer_id, host, port]
 
     def handle_peer_name(self, peerconn, data):
-        """ Handles the NAME message type. Message data is not used. """
         peerconn.send_data(REPLY, self.id)
 
     def handle_insert_peer(self, peerconn, data):
-        """Handles the INSERT_PEER (join) message type. The message data
-        should be a string of the form, "peerid  host  port", where peer-id
-        is the canonical name of the peer that desires to be added to this
-        peer's list of peers, host and port are the necessary data to connect
-        to the peer.
-
-        """
         self.peerlock.acquire()
         try:
             try:
@@ -498,7 +344,6 @@ class FileSharingPeer(Peer):
             self.peerlock.release()
 
     def handle_list_peers(self, peerconn, data):
-        """ Handles the LIST_PEERS message type. Message data is not used. """
         self.peerlock.acquire()
         try:
             self.log('Listing peers %d' % self.num_peers())
@@ -509,15 +354,7 @@ class FileSharingPeer(Peer):
         finally:
             self.peerlock.release()
 
-    # QUERY arguments: "return-peerid key ttl"
     def handle_query(self, peerconn, data):
-        """ Handles the QUERY message type. The message data should be in the
-        format of a string, "return-peer-id  key  ttl", where return-peer-id
-        is the name of the peer that initiated the query, key is the (portion
-        of the) file name being searched for, and ttl is how many further
-        levels of peers this query should be propagated on.
-
-        """
         # self.peerlock.acquire()
         try:
             peerid, key, ttl = data.split()
@@ -535,20 +372,12 @@ class FileSharingPeer(Peer):
         t.start()
 
     def process_query(self, peerid, key, ttl):
-        """ Handles the processing of a query message after it has been
-        received and acknowledged, by either replying with a QRESPONSE message
-        if the file is found in the local list of files, or propagating the
-        message onto all immediate neighbors.
-
-        """
         host, port = peerid.split(':')
         for file_name in self.files.keys():
             if key in file_name:
                 file_peer_id = self.files[file_name]
                 if not file_peer_id:  # local files mapped to None
                     file_peer_id = self.id
-                # can't use send_to_peer here because peerid is not necessarily
-                # an immediate neighbor
                 self.connect_and_send(
                     host,
                     int(port),
@@ -556,21 +385,13 @@ class FileSharingPeer(Peer):
                     '%s %s' % (file_name, file_peer_id),
                     pid=peerid)
                 return
-        # will only reach here if key not found... in which case
-        # propagate query to neighbors
+        # if no match and ttl > 0, propagate query to neighbors
         if ttl > 0:
             msgdata = '%s %s %d' % (peerid, key, ttl - 1)
             for nextpid in self.remote_peers:
-                # FIXME this was send_to_peer which doesn't work and doesn't
-                # seem to do anything useful
-
                 self.connect_and_send(host, port, QUERY, msgdata)
 
     def handle_qresponse(self, peerconn, data):
-        """ Handles the QRESPONSE message type. The message data should be
-        in the format of a string, "file-name  peer-id", where file-name is
-        the file that was queried about and peer-id is the name of the peer
-        that has a copy of the file. """
         try:
             file_name, file_peer_id = data.split()
             if file_name in self.files:
@@ -583,9 +404,6 @@ class FileSharingPeer(Peer):
                 traceback.print_exc()
 
     def handle_file_get(self, peerconn, data):
-        """ Handles the FILEGET message type. The message data should be in
-        the format of a string, "file-name", where file-name is the name
-        of the file to be fetched. """
         file_name = data
         if file_name not in self.files:
             self.log('File not found %s' % file_name)
@@ -608,12 +426,6 @@ class FileSharingPeer(Peer):
         peerconn.send_data(REPLY, filedata)
 
     def handle_quit(self, peerconn, data):
-        """ Handles the QUIT message type. The message data should be in the
-        format of a string, "peer-id", where peer-id is the canonical
-        name of the peer that wishes to be unregistered from this
-        peer's directory.
-
-        """
         self.peerlock.acquire()
         try:
             peerid = data.lstrip().rstrip()
@@ -631,12 +443,6 @@ class FileSharingPeer(Peer):
             self.peerlock.release()
 
     def build_peers(self, host, port, hops=1):
-        """
-        Attempt to build the local peer list up to the limit stored by
-        self.maxpeers, using a simple depth-first search given an
-        initial host and port as starting point. The depth of the
-        search is limited by the hops parameter.
-        """
         # precondition: may be a good idea to hold the lock before going
         #               into this function
         rp = RemotePeer(host, port)
@@ -663,12 +469,10 @@ class FileSharingPeer(Peer):
             self.remove_peer(rp)
 
     def add_local_file(self, filename):
-        """ Registers a locally-stored file with the peer. """
         self.files[filename] = None
         self.log("Added local file %s" % filename)
 
     def remove_local_file(self, filename):
-        """ De-registers a locally-stored file with the peer. """
         self.files.pop(filename)
         self.log("Removed local file %s" % filename)
 

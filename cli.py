@@ -2,22 +2,23 @@ import argparse
 from p2p import FileSharingPeer, RemotePeer
 import gui
 
-parser = argparse.ArgumentParser(description='testing btpeer.py')
+parser = argparse.ArgumentParser(description="testing btpeer.py")
 parser.add_argument(
-    '--send', choices=['NAME', 'LIST', 'JOIN', 'QUER', 'RESP', 'FGET', 'QUIT'])
-parser.add_argument('--peer-port', type=str)
-parser.add_argument('--run', action='store_true')
-parser.add_argument('--build-from', type=int)
-parser.add_argument('--port', type=int, required=True)
-parser.add_argument('--add-file')
-parser.add_argument('--file-get')
-parser.add_argument('--query')
-parser.add_argument('--gui', action='store_true')
-parser.add_argument('--debug', action='store_true')
+    "--send", choices=["NAME", "LIST", "JOIN", "QUER", "RESP", "FGET", "QUIT"]
+)
+parser.add_argument("--peer-port", type=str)
+parser.add_argument("--run", action="store_true")
+parser.add_argument("--build-from", type=int)
+parser.add_argument("--port", type=int, required=True)
+parser.add_argument("--add-file")
+parser.add_argument("--file-get")
+parser.add_argument("--query")
+parser.add_argument("--gui", action="store_true")
+parser.add_argument("--debug", action="store_true")
 args = parser.parse_args()
 
 port = args.port
-host = '0.0.0.0'
+host = "0.0.0.0"
 peer = FileSharingPeer(5, port, host)
 peer.debug = True
 
@@ -47,8 +48,7 @@ if args.gui:
     if args.build_from:
         build_from = RemotePeer(host=host, port=args.build_from)
 
-    app = gui.App(
-        host=host, port=args.port, build_from=build_from, debug=args.debug)
+    app = gui.App(host=host, port=args.port, build_from=build_from, debug=args.debug)
     app.mainloop()
 
 if args.run:

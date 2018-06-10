@@ -5,6 +5,7 @@ import p2p
 
 class App(tk.Frame):
     def __init__(self, port, host, add_local=False, build_from=None, debug=False):
+        # FIXME `build_from` is ambiguous variable name
         self.root = tk.Tk()
 
         super().__init__(self.root)
@@ -14,7 +15,7 @@ class App(tk.Frame):
         if add_local:
             self.peer.addlocalfile("hello.txt")
         if build_from:
-            self.peer.build_peers(build_from.host, build_from.port, hops=8)
+            self.peer.build_peers(build_from, hops=8)
 
         self.thread = threading.Thread(target=self.peer.main_loop, args=([]))
         self.thread.start()
@@ -104,15 +105,14 @@ class App(tk.Frame):
         self.quit.pack(anchor=tk.CENTER)
 
     def add_peer(self):
-        address = self.add_peer_entry.get()
-        host, port = address.split(":")
-        self.peer.send_join_message(host, port)
+        remote_peer = p2p.RemotePeer.from_id(self.add_peer_entry.get())
+        self.peer.send_join_message(remote_peer)
 
     def remove_peer(self):
         # FIXME: multi-select
         index = self.peer_list.curselection()[0]
-        rp = self.peer.remote_peers[index]
-        self.peer.send_quit_message(rp.host, rp.port)
+        remote_peer = self.peer.remote_peers[index]
+        self.peer.send_quit_message(remote_peer)
 
     def add_file(self):
         self.peer.add_local_file(self.add_file_entry.get())

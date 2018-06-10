@@ -81,25 +81,25 @@ class Peer:
         self.log("Disconnecting " + str(clientsock.getpeername()))
         peerconn.close()
 
-    def peer_is_self(self, rp):
-        return rp.host == self.host and rp.port == self.port
+    def peer_is_self(self, remote_peer):
+        return remote_peer.host == self.host and remote_peer.port == self.port
 
-    def peer_is_connected(self, rp):
-        return rp in self.remote_peers
+    def peer_is_connected(self, remote_peer):
+        return remote_peer in self.remote_peers
 
-    def can_add_peer(self, rp):
+    def can_add_peer(self, remote_peer):
         return (
-            not self.peer_is_self(rp)
-            and not self.peer_is_connected(rp)
+            not self.peer_is_self(remote_peer)
+            and not self.peer_is_connected(remote_peer)
             and not self.max_peers_reached()
         )
 
-    def add_peer(self, rp):
+    def add_peer(self, remote_peer):
         # FIXME returning true/false is odd
         # FIXME Intuitively, method named `add_x` should take input of type `x`
         # not (host, port) ...
-        if self.can_add_peer(rp):
-            self.remote_peers.append(rp)
+        if self.can_add_peer(remote_peer):
+            self.remote_peers.append(remote_peer)
             return True
         else:
             return False
@@ -125,29 +125,28 @@ class Peer:
         s.listen(backlog)
         return s
 
-    def connect_and_send(self, host, port, msgtype, msgdata, pid=None, waitreply=True):
+    def connect_and_send(self, remote_peer, msgtype, msgdata, waitreply=True):
         # FIXME remove pid
         # Or do wee need it for messages that need to be returned so someone
         # other than sender?
         msgreply = []
 
-        remote_peer = RemotePeer(host, port)
         peerconn = PeerConnection(remote_peer, debug=self.debug)
         peerconn.send_data(msgtype, msgdata)
-        self.log(f"Sent {pid}: {msgtype}")
+        self.log(f"Sent {remote_peer.id}: {msgtype}")
 
         if waitreply:
             onereply = peerconn.receive_data()
             while onereply != (None, None):
                 msgreply.append(onereply)
-                self.log(f"Got reply {pid}: {str(msgreply)}")
+                self.log(f"Got reply {remote_peer.id}: {str(msgreply)}")
                 onereply = peerconn.receive_data()
         peerconn.close()
 
         return msgreply
 
     def prune_peers(self):
-        dead_peers = []
+        dead_remote_peers = []
         for remote_peer in self.remote_peers:
             isconnected = False
             try:
@@ -156,14 +155,14 @@ class Peer:
                 peerconn.send_data("PING", "")
                 isconnected = True
             except:
-                dead_peers.append(remote_peer)
+                dead_remote_peers.append(remote_peer)
             if isconnected:
                 peerconn.close()
 
         self.peerlock.acquire()
         try:
-            for peer in dead_peers:
-                self.remove_peer(peer)
+            for remote_peer in dead_remote_peers:
+                self.remove_peer(remote_peer)
         finally:
             self.peerlock.release()
 
@@ -185,8 +184,8 @@ class Peer:
         self.shutdown = True
         # FIXME perhaps this cleanup should be handled by the mainloop?
         # Or rename to something like "teardown"
-        for rp in self.remote_peers:
-            self.send_quit_message(rp.host, rp.port)
+        for remote_peer in self.remote_peers:
+            self.send_quit_message(remote_peer)
 
 
 class PeerConnection:
@@ -286,18 +285,20 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             try:
-                rp = RemotePeer.from_id(data)
+                remote_peer = RemotePeer.from_id(data)
                 if self.max_peers_reached():
                     self.log(
                         f"maxpeers {self.maxpeers} reached: connection terminating"
                     )
                     peerconn.send_data(ERROR, "Join: too many peers")
                     return
-                if self.add_peer(rp):
-                    self.log(f"added peer: {rp.id}")
-                    peerconn.send_data(REPLY, f"Join: peer added: {rp.id}")
+                if self.add_peer(remote_peer):
+                    self.log(f"added peer: {remote_peer.id}")
+                    peerconn.send_data(REPLY, f"Join: peer added: {remote_peer.id}")
                 else:
-                    peerconn.send_data(ERROR, f"Join: peer already inserted {rp.id}")
+                    peerconn.send_data(
+                        ERROR, f"Join: peer already inserted {remote_peer.id}"
+                    )
             except:
                 self.log(f"invalid insert {str(peerconn)}: {data}")
                 peerconn.send_data(ERROR, "Join: incorrect arguments")
@@ -309,7 +310,7 @@ class FileSharingPeer(Peer):
         try:
             self.log(f"Listing peers {self.num_peers}")
             peerconn.send_data(REPLY, str(self.num_peers))  # FIXME str
-            for rp in self.remote_peers:
+            for remote_peer in self.remote_peers:
                 peerconn.send_data(REPLY, self.id)
         finally:
             self.peerlock.release()
@@ -326,29 +327,27 @@ class FileSharingPeer(Peer):
             return
         # self.peerlock.release()
 
-        t = threading.Thread(target=self.process_query, args=[peerid, key, int(ttl)])
+        remote_peer = RemotePeer.from_id(peerid)
+        t = threading.Thread(
+            target=self.process_query, args=[remote_peer, key, int(ttl)]
+        )
         t.start()
 
-    def process_query(self, peerid, key, ttl):
-        host, port = peerid.split(":")
+    def process_query(self, remote_peer, key, ttl):
         for file_name in self.files.keys():
             if key in file_name:
                 file_peer_id = self.files[file_name]
                 if not file_peer_id:  # local files mapped to None
                     file_peer_id = self.id
                 self.connect_and_send(
-                    host,
-                    int(port),
-                    QRESPONSE,
-                    f"{file_name} {file_peer_id}",
-                    pid=peerid,
+                    remote_peer, QRESPONSE, f"{file_name} {file_peer_id}"
                 )
                 return
         # if no match and ttl > 0, propagate query to neighbors
         if ttl > 0:
-            msgdata = f"{peerid} {key} {ttl - 1}"
-            for nextpid in self.remote_peers:
-                self.connect_and_send(host, port, QUERY, msgdata)
+            msgdata = f"{remote_peer.id} {key} {ttl - 1}"
+            for remote_peer in self.remote_peers:
+                self.connect_and_send(remote_peer, QUERY, msgdata)
 
     def handle_qresponse(self, peerconn, data):
         # peerlock? we alter Peer.files here ...
@@ -384,12 +383,12 @@ class FileSharingPeer(Peer):
         self.peerlock.acquire()
         try:
             peerid = data.lstrip().rstrip()
-            rp = RemotePeer.from_id(peerid)
-            if rp in self.remote_peers:
+            remote_peer = RemotePeer.from_id(peerid)
+            if remote_peer in self.remote_peers:
                 msg = f"Quit: peer removed: {peerid}"
                 self.log(msg)
                 peerconn.send_data(REPLY, msg)
-                self.remove_peer(rp)
+                self.remove_peer(remote_peer)
             else:
                 msg = f"Quit: peer not found: {peerid}"
                 self.log(msg)
@@ -397,31 +396,29 @@ class FileSharingPeer(Peer):
         finally:
             self.peerlock.release()
 
-    def build_peers(self, host, port, hops=1):
+    def build_peers(self, remote_peer, hops=1):
         # precondition: may be a good idea to hold the lock before going
         #               into this function
-        rp = RemotePeer(host, port)
         if self.max_peers_reached() or not hops:
             return
 
-        self.log(f"Building peers from {rp.id}")
+        self.log(f"Building peers from {remote_peer.id}")
 
         try:
-            self.send_join_message(host, port)
+            self.send_join_message(remote_peer)
 
             # do recursive depth first search to add more peers
-            resp = self.connect_and_send(host, port, LIST_PEERS, "")
+            resp = self.connect_and_send(remote_peer, LIST_PEERS, "")
             if len(resp) > 1:
                 resp.reverse()
             resp.pop()  # get rid of header count reply
             while len(resp):
-                nextpid = resp.pop()[1]
-                if nextpid != self.id:
-                    host, port = nextpid.split(":")  # FIXME helper function ...
-                    port = int(port)
-                    self.build_peers(host, port, hops - 1)
+                next_remote_peer_id = resp.pop()[1]
+                if next_remote_peer_id != self.id:
+                    next_remote_peer = RemotePeer.from_id(next_remote_peer_id)
+                    self.build_peers(next_remote_peer, hops - 1)
         except:
-            self.remove_peer(rp)
+            self.remove_peer(remote_peer)
             raise
 
     def add_local_file(self, filename):
@@ -432,14 +429,11 @@ class FileSharingPeer(Peer):
         self.files.pop(filename)
         self.log(f"Removed local file {filename}")
 
-    def send_join_message(self, host, port):
-        resp = self.connect_and_send(host, port, INSERT_PEER, self.id)[0]
+    def send_join_message(self, remote_peer):
+        resp = self.connect_and_send(remote_peer, INSERT_PEER, self.id)[0]
         self.log(str(resp))  # FIXME
 
-        # FIXME: rp is a little awkward here ...
-        rp = RemotePeer(host, port)
-
-        if (resp[0] != REPLY) or self.peer_is_connected(rp):
+        if (resp[0] != REPLY) or self.peer_is_connected(remote_peer):
             # FIXME this "error state" isn't really an "error state"
             if "already inserted" not in resp[1]:
                 # FIXME this return statements was used to prematurely stop
@@ -447,17 +441,17 @@ class FileSharingPeer(Peer):
                 # an exception would be more appropriate
                 return
 
-        self.add_peer(rp)  # FIXME leaving here for now ...
+        self.add_peer(remote_peer)  # FIXME leaving here for now ...
 
-    def send_quit_message(self, host, port):
-        resp = self.connect_and_send(host, int(port), PEER_QUIT, self.id)
+    def send_quit_message(self, remote_peer):
+        resp = self.connect_and_send(remote_peer, PEER_QUIT, self.id)
 
         # FIXME: why is this double nested??
         if resp[0][0] == REPLY:
-            self.remove_peer(RemotePeer(host, port))
+            self.remove_peer(remote_peer)
 
     def query_peers(self, key, ttl="10"):
         # FIXME: a string ttl is weird
-        for peer in self.remote_peers:
+        for remote_peer in self.remote_peers:
             data = " ".join([self.id, key, ttl])
-            self.connect_and_send(peer.host, peer.port, QUERY, data)
+            self.connect_and_send(remote_peer, QUERY, data)

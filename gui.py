@@ -59,12 +59,14 @@ class App(tk.Frame):
         # FIXME: I don't think I need to tack all these onto self ...
 
         # Root frames
-        file_frame = tk.Frame(self)
-        file_frame.grid(row=0, column=1)
         peer_frame = tk.Frame(self)
         peer_frame.grid(row=0, column=0)
+        file_frame = tk.Frame(self)
+        file_frame.grid(row=0, column=1)
+        search_frame = tk.Frame(self)
+        search_frame.grid(row=0, column=2)
         controls_frame = tk.Frame(self)
-        controls_frame.grid(row=1)
+        controls_frame.grid(row=1, column=1)
 
         # Peer frame
         self.peer_list = tk.Listbox(peer_frame)
@@ -89,6 +91,18 @@ class App(tk.Frame):
         self.add_file_button = tk.Button(
             file_frame, text='Add Local File', command=self.add_file)
         self.add_file_button.grid(row=3)
+
+        # Search frame
+        self.search_result_list = tk.Listbox(search_frame)
+        self.search_result_list.grid(row=0)
+        self.search_entry = tk.Entry(search_frame)
+        self.search_entry.grid(row=1)
+        self.search_button = tk.Button(
+            search_frame, text="Search", command=self.search)
+        self.search_button.grid(row=2)
+        # self.add_file_button = tk.Button(
+        #     file_frame, text='Add Local File', command=self.add_file)
+        # self.add_file_button.grid(row=3)
 
         # Controls frame
         self.quit = tk.Button(
@@ -115,6 +129,9 @@ class App(tk.Frame):
         file_entry = self.file_list.get(index)
         filename, address = file_entry.split('@')
         self.peer.remove_local_file(filename)
+
+    def search(self):
+        print('search')
 
     def _destroy(self):
         self.root.destroy()

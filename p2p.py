@@ -1,7 +1,7 @@
 import socket
 import struct
 import threading
-import traceback
+import contextlib
 
 
 class RemotePeer:
@@ -68,20 +68,14 @@ class Peer:
         remote_peer = RemotePeer(host, port)
         peerconn = PeerConnection(remote_peer, clientsock, self.debug)
 
-        try:
-            msgtype, msgdata = peerconn.receive_data()
-            if msgtype:
-                msgtype = msgtype.upper()
-            if msgtype in self.handlers:
-                self.log('Handling peer msg: %s: %s' % (msgtype, msgdata))
-                self.handlers[msgtype](peerconn, msgdata)
-            else:
-                self.log('Not handled: %s: %s' % (msgtype, msgdata))
-        except KeyboardInterrupt:
-            raise
-        except:
-            if self.debug:
-                traceback.print_exc()
+        msgtype, msgdata = peerconn.receive_data()
+        if msgtype:
+            msgtype = msgtype.upper()
+        if msgtype in self.handlers:
+            self.log('Handling peer msg: %s: %s' % (msgtype, msgdata))
+            self.handlers[msgtype](peerconn, msgdata)
+        else:
+            self.log('Not handled: %s: %s' % (msgtype, msgdata))
 
         self.log('Disconnecting ' + str(clientsock.getpeername()))
         peerconn.close()
@@ -137,24 +131,19 @@ class Peer:
                          waitreply=True):
         # FIXME remove pid
         msgreply = []
-        try:
-            remote_peer = RemotePeer(host, port)
-            peerconn = PeerConnection(remote_peer, debug=self.debug)
-            peerconn.send_data(msgtype, msgdata)
-            self.log('Sent %s: %s' % (pid, msgtype))
 
-            if waitreply:
+        remote_peer = RemotePeer(host, port)
+        peerconn = PeerConnection(remote_peer, debug=self.debug)
+        peerconn.send_data(msgtype, msgdata)
+        self.log('Sent %s: %s' % (pid, msgtype))
+
+        if waitreply:
+            onereply = peerconn.receive_data()
+            while onereply != (None, None):
+                msgreply.append(onereply)
+                self.log('Got reply %s: %s' % (pid, str(msgreply)))
                 onereply = peerconn.receive_data()
-                while onereply != (None, None):
-                    msgreply.append(onereply)
-                    self.log('Got reply %s: %s' % (pid, str(msgreply)))
-                    onereply = peerconn.receive_data()
-            peerconn.close()
-        except KeyboardInterrupt:
-            raise
-        except:
-            if self.debug:
-                traceback.print_exc()
+        peerconn.close()
 
         return msgreply
 
@@ -185,29 +174,20 @@ class Peer:
             'Server started: %s (%s:%d)' % (self.id, self.host, self.port))
 
         while not self.shutdown:
-            try:
+            with contextlib.suppress(socket.timeout):
                 clientsock, clientaddr = s.accept()
                 clientsock.settimeout(None)
 
                 t = threading.Thread(
                     target=self.handle_peer, args=[clientsock])
                 t.start()
-            except KeyboardInterrupt:
-                print('KeyboardInterrupt: stopping main_loop')
-                self.exit()
-                continue
-            except:
-                if self.debug:
-                    # traceback.print_exc()
-                    continue
-
-        self.log('Main loop exiting')
 
         s.close()
 
     def exit(self):
         self.shutdown = True
         # FIXME perhaps this cleanup should be handled by the mainloop?
+        # Or rename to something like "teardown"
         for rp in self.remote_peers:
             self.send_quit_message(rp.host, rp.port)
 
@@ -241,42 +221,26 @@ class PeerConnection:
         return msg
 
     def send_data(self, msgtype, msgdata):
-        try:
-            msg = self.make_msg(msgtype, msgdata)
-            self.sd.write(msg)
-            self.sd.flush()
-        except KeyboardInterrupt:
-            raise
-        except:
-            if self.debug:
-                traceback.print_exc()
-            return False
-        return True
+        msg = self.make_msg(msgtype, msgdata)
+        self.sd.write(msg)
+        self.sd.flush()
 
     def receive_data(self):
-        try:
-            msgtype = self.sd.read(4)
-            if not msgtype:
-                return None, None
+        msgtype = self.sd.read(4)
+        if not msgtype:
+            return None, None
 
-            lenstr = self.sd.read(4)
-            msglen = int(struct.unpack("!L", lenstr)[0])
-            msg = b""
+        lenstr = self.sd.read(4)
+        msglen = int(struct.unpack("!L", lenstr)[0])
+        msg = b""
 
-            while len(msg) != msglen:
-                data = self.sd.read(min(2048, msglen - len(msg)))
-                if not len(data):
-                    break
-                msg += data
+        while len(msg) != msglen:
+            data = self.sd.read(min(2048, msglen - len(msg)))
+            if not len(data):
+                break
+            msg += data
 
-            if len(msg) != msglen:
-                return None, None
-
-        except KeyboardInterrupt:
-            raise
-        except:
-            if self.debug:
-                traceback.print_exc()
+        if len(msg) != msglen:
             return None, None
 
         # application logic uses strings
@@ -392,16 +356,13 @@ class FileSharingPeer(Peer):
                 self.connect_and_send(host, port, QUERY, msgdata)
 
     def handle_qresponse(self, peerconn, data):
-        try:
-            file_name, file_peer_id = data.split()
-            if file_name in self.files:
-                self.log('Can\'t add duplicate file %s %s' % (file_name,
-                                                              file_peer_id))
-            else:
-                self.files[file_name] = file_peer_id
-        except:
-            if self.debug:
-                traceback.print_exc()
+        # peerlock? we alter Peer.files here ...
+        file_name, file_peer_id = data.split()
+        if file_name in self.files:
+            self.log('Can\'t add duplicate file %s %s' % (file_name,
+                                                          file_peer_id))
+        else:
+            self.files[file_name] = file_peer_id
 
     def handle_file_get(self, peerconn, data):
         file_name = data
@@ -464,9 +425,8 @@ class FileSharingPeer(Peer):
                 if nextpid != self.id:
                     self.build_peers(host, port, hops - 1)
         except:
-            if self.debug:
-                traceback.print_exc()
             self.remove_peer(rp)
+            raise
 
     def add_local_file(self, filename):
         self.files[filename] = None
